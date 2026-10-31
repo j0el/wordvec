@@ -132,3 +132,11 @@ is roughly the same step as from `king` to `queen`.
 The program scales each word's vector to the same length, adds and subtracts
 them, then looks for the known words closest to the result. The input words are
 excluded from the answer, since a word is always closest to itself.
+
+## Going deeper: SVD
+
+Step 3 of `build` uses SVD to compress the co-occurrence table. The same move
+— keep the big singular values, throw the small ones away — shows up all over
+modern LLMs, from GloVe embeddings to LoRA fine-tuning to on-device model
+compression. [`SVD.md`](SVD.md) is a tutorial in the same style that walks
+through why.
