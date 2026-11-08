@@ -24,7 +24,7 @@ import numpy as np
 from wordvec import COMMON_WORDS, Walkthrough, bar
 from wordvec.chinese import (
     candidates, handle_compare, handle_equation, handle_near, handle_show,
-    label, pad, print_results, width,
+    label, load_jieba, pad, print_results, width,
 )
 
 DICT = None
@@ -41,12 +41,7 @@ def cut(sentence):
     the toy corpus is cut the same way no matter what else the program does)."""
     global _CUTTER
     if _CUTTER is None:
-        import logging
-
-        import jieba
-
-        jieba.setLogLevel(logging.WARNING)
-        _CUTTER = jieba.Tokenizer()
+        _CUTTER = load_jieba().Tokenizer()
     return _CUTTER.lcut(sentence)
 
 

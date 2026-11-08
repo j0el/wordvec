@@ -16,11 +16,13 @@ You can type English (`king - man + woman`) or Chinese (`国王 - 男人 + 女�
 
 import argparse
 import collections
+import logging
 import re
 import readline  # noqa: F401 -- enables arrow-key editing and history in input()
 import sys
 import unicodedata
 import urllib.request
+import warnings
 import zipfile
 from pathlib import Path
 
@@ -158,6 +160,21 @@ SUFFIXES = (("ies", "y"), ("ing", ""), ("ing", "e"), ("ier", "y"), ("er", ""),
             ("er", "e"), ("ed", ""), ("ed", "e"), ("s", ""))
 
 
+def load_jieba():
+    """Import jieba quietly.
+
+    jieba's own source has regex strings that newer Pythons flag with a
+    SyntaxWarning on first compile. They are harmless and not ours to fix, but
+    they would otherwise print into the middle of a presentation.
+    """
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        import jieba
+
+    jieba.setLogLevel(logging.WARNING)  # hides "Building prefix dict..."
+    return jieba
+
+
 # --------------------------------------------------------------- downloading
 
 def download(url, destination, label):
@@ -282,7 +299,7 @@ class Dictionary:
         if senses:
             return self._clip("; ".join(senses[:2]), limit)
         # Not a dictionary word (e.g. a compound like 主治医生): gloss its pieces.
-        import jieba
+        jieba = load_jieba()
 
         parts = list(dict.fromkeys(
             p for p in jieba.cut_for_search(hanzi) if p != hanzi))
@@ -368,7 +385,7 @@ def resolve(model, dictionary, text):
     if HANZI_RE.search(text):
         if text in model.key_to_index:
             return Term(text, text)
-        import jieba
+        jieba = load_jieba()
 
         pieces = jieba.lcut(text)
         if len(pieces) > 1:
@@ -501,7 +518,7 @@ def handle_show(model, dictionary, text):
 
 
 def handle_translate(model, dictionary, text):
-    import jieba
+    jieba = load_jieba()
 
     text = normalise_input(text).strip()
     if HANZI_RE.search(text):
