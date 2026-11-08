@@ -1,0 +1,25 @@
+services:
+  wordvec:
+    build: .
+    image: wordvec
+    container_name: wordvec
+    restart: unless-stopped
+    expose:
+      - "8000"
+    healthcheck:
+      # The slim base image has no curl; stdlib urllib does the same job.
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/healthz', timeout=5)"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      # Loading both models takes a few seconds; be generous.
+      start_period: 60s
+    networks:
+      - proxy
+
+# Shared with the other apps: nginx in homelab-gateway reaches this container
+# by name over this network. Nothing is published on a host port.
+networks:
+  proxy:
+    external: true
+    name: homelab-gateway_proxy

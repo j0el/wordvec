@@ -16,12 +16,11 @@ English glosses is set once by `init()`.
 """
 
 import random
-import re
 from collections import Counter, defaultdict
 
 import numpy as np
 
-from wordvec import COMMON_WORDS, Walkthrough, bar
+from wordvec import Walkthrough, bar
 from wordvec.chinese import (
     candidates, handle_compare, handle_equation, handle_near, handle_show,
     label, load_jieba, pad, print_results, width,
@@ -172,9 +171,9 @@ def build_step_sentences(model, trained):
     for number, (chinese, english) in enumerate(TOY_CORPUS, start=1):
         print(f"    {number:>2}. {pad(chinese, 26)} {english}")
     sentence = TOY_CORPUS[6][0]
-    print(f"\n  One thing English never has to do first. Written Chinese has no")
-    print(f"  spaces, so before it can count anything the program must decide")
-    print(f"  where the words are. jieba cuts sentence 7 like this:\n")
+    print("\n  One thing English never has to do first. Written Chinese has no")
+    print("  spaces, so before it can count anything the program must decide")
+    print("  where the words are. jieba cuts sentence 7 like this:\n")
     print(f"    {sentence}")
     print("    " + " | ".join(cut(sentence)))
     print("    " + " | ".join(en(w) or "?" for w in cut(sentence)))

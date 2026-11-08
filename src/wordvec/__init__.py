@@ -844,121 +844,114 @@ FULL_STEPS = [
 ]
 
 
-def main() -> None:
-    model = load_model()
-    print(BANNER)
-    build = Walkthrough("build", BUILD_STEPS, "WHERE THE NUMBERS COME FROM",
-                        train_toy_vectors)
-    tour = Walkthrough("tour", TOUR_STEPS, "A GUIDED WALKTHROUGH")
-    generate = Walkthrough("generate", GENERATE_STEPS,
-                           "GENERATING TEXT ONE WORD AT A TIME",
-                           train_toy_bigrams)
-    full = Walkthrough("full", FULL_STEPS,
-                       "THE WHOLE STORY, END TO END",
-                       train_full)
-    # Whichever walkthrough was most recently shown. Enter and `b` advance /
-    # rewind this one, so the presenter can just keep pressing Enter.
-    active = None
+# Returned by execute() when the user asked to leave.
+QUIT = object()
 
-    while True:
-        try:
-            line = input("word math> ").strip()
-        except (EOFError, KeyboardInterrupt):
-            print("\nBye!")
-            return
 
-        if not line:
-            if active is not None and active.step < len(active.steps):
-                active.move(model, +1)
-            continue
+def make_walkthroughs():
+    """The four walkthroughs, keyed by the command that starts each."""
+    return {
+        "build": Walkthrough("build", BUILD_STEPS, "WHERE THE NUMBERS COME FROM",
+                             train_toy_vectors),
+        "tour": Walkthrough("tour", TOUR_STEPS, "A GUIDED WALKTHROUGH"),
+        "generate": Walkthrough("generate", GENERATE_STEPS,
+                                "GENERATING TEXT ONE WORD AT A TIME",
+                                train_toy_bigrams),
+        "full": Walkthrough("full", FULL_STEPS,
+                            "THE WHOLE STORY, END TO END", train_full),
+    }
 
-        command, _, argument = line.partition(" ")
-        command = command.lower()
-        words = argument.split()
 
-        if command in {"quit", "exit", "q"}:
-            print("Bye!")
-            return
-        if command in {"help", "?", "examples"}:
-            print(BANNER)
-            continue
-        if command == "tour":
-            target = tour.resolve(argument.strip().lower())
-            if target is None:
-                print(f"  No such tour step: '{argument.strip()}'.\n")
-            else:
-                tour.show(model, target)
-                active = tour
-            continue
-        if command == "twins":
-            handle_twins(model)
-            continue
-        if command == "context":
-            handle_context(model)
-            continue
-        if command == "attend":
-            handle_attend(model)
-            continue
-        if command == "generate":
-            target = generate.resolve(argument.strip().lower())
-            if target is None:
-                print(f"  No such step: '{argument.strip()}'.\n")
-            else:
-                generate.show(model, target)
-                active = generate
-            continue
-        if command == "full":
-            target = full.resolve(argument.strip().lower())
-            if target is None:
-                print(f"  No such step: '{argument.strip()}'.\n")
-            else:
-                full.show(model, target)
-                active = full
-            continue
-        if command == "build":
-            target = build.resolve(argument.strip().lower())
-            if target is None:
-                print(f"  No such step: '{argument.strip()}'.")
-                print(describe_build_steps() + "\n")
-            else:
-                build.show(model, target)
-                active = build
-            continue
-        if command in {"next", "n"}:
-            if active is not None:
-                active.move(model, +1)
-            else:
-                print("  Nothing to advance. Type `tour` or `build` to start.\n")
-            continue
-        if command in {"back", "b", "prev"}:
-            if active is not None:
-                active.move(model, -1)
-            else:
-                print("  Nothing to go back to. Type `tour` or `build` to start.\n")
-            continue
-        # Jumping straight to a panel by name: `counts`, `plot`, ...
-        if not words and any(command == name for name, _, _ in BUILD_STEPS):
-            build.show(model, build.resolve(command))
-            active = build
-            continue
-        if command == "near" and words:
-            handle_near(model, words[0])
-            continue
-        if command == "show" and words:
-            handle_show(model, words[0])
-            continue
-        if command == "compare":
-            if len(words) == 2:
-                handle_compare(model, words[0], words[1])
-            else:
-                print("  Give me exactly two words, like: compare dog cat\n")
-            continue
+def execute(model, walks, active, line):
+    """Run one command line, printing the result.
 
+    `active` is whichever walkthrough was most recently shown: Enter and `b`
+    advance / rewind it, so the presenter can just keep pressing Enter.
+    Returns the walkthrough that is active afterwards, or QUIT. Shared by the
+    terminal loop in main() and by the web app.
+    """
+    line = line.strip()
+    if not line:
+        if active is not None and active.step < len(active.steps):
+            active.move(model, +1)
+        return active
+
+    command, _, argument = line.partition(" ")
+    command = command.lower()
+    words = argument.split()
+
+    if command in {"quit", "exit", "q"}:
+        print("Bye!")
+        return QUIT
+    if command in {"help", "?", "examples"}:
+        print(BANNER)
+        return active
+    if command in walks:
+        walk = walks[command]
+        target = walk.resolve(argument.strip().lower())
+        if target is None:
+            print(f"  No such step: '{argument.strip()}'.")
+            if command == "build":
+                print(describe_build_steps())
+            print()
+            return active
+        walk.show(model, target)
+        return walk
+    if command in {"next", "n"}:
+        if active is not None:
+            active.move(model, +1)
+        else:
+            print("  Nothing to advance. Type `tour` or `build` to start.\n")
+        return active
+    if command in {"back", "b", "prev"}:
+        if active is not None:
+            active.move(model, -1)
+        else:
+            print("  Nothing to go back to. Type `tour` or `build` to start.\n")
+        return active
+    # Jumping straight to a panel by name: `counts`, `plot`, ...
+    if not words and any(command == name for name, _, _ in BUILD_STEPS):
+        walks["build"].show(model, walks["build"].resolve(command))
+        return walks["build"]
+    if command == "twins":
+        handle_twins(model)
+    elif command == "context":
+        handle_context(model)
+    elif command == "attend":
+        handle_attend(model)
+    elif command == "near" and words:
+        handle_near(model, words[0])
+    elif command == "show" and words:
+        handle_show(model, words[0])
+    elif command == "compare":
+        if len(words) == 2:
+            handle_compare(model, words[0], words[1])
+        else:
+            print("  Give me exactly two words, like: compare dog cat\n")
+    else:
         try:
             handle_equation(model, line)
         except ValueError as error:
             print(f"  {error}")
             print("  Try something like: king - man + woman\n")
+    return active
+
+
+def main() -> None:
+    model = load_model()
+    print(BANNER)
+    walks = make_walkthroughs()
+    active = None
+
+    while True:
+        try:
+            line = input("word math> ")
+        except (EOFError, KeyboardInterrupt):
+            print("\nBye!")
+            return
+        active = execute(model, walks, active, line)
+        if active is QUIT:
+            return
 
 
 if __name__ == "__main__":

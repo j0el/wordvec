@@ -21,29 +21,13 @@ import re
 import readline  # noqa: F401 -- enables arrow-key editing and history in input()
 import sys
 import unicodedata
-import urllib.request
 import warnings
-import zipfile
 from pathlib import Path
 
 import numpy as np
 
-from wordvec import COMMON_WORDS, Walkthrough, bar, parse, unit
-
-CACHE_DIR = Path.home() / ".cache" / "wordvec"
-
-# Tencent AI Lab's Chinese embeddings (light edition): 143,613 words x 200
-# numbers, learned from billions of words of news, web pages and novels.
-# Apache-2.0, mirrored on Hugging Face by the text2vec project.
-VECTORS_URL = (
-    "https://huggingface.co/shibing624/text2vec-word2vec-tencent-chinese/"
-    "resolve/main/light_Tencent_AILab_ChineseEmbedding.bin"
-)
-VECTORS_FILE = CACHE_DIR / "tencent_light.bin"
-
-# CC-CEDICT is community-maintained and licensed CC BY-SA 4.0.
-CEDICT_URL = "https://www.mdbg.net/chinese/export/cedict/cedict_1_0_ts_utf-8_mdbg.zip"
-CEDICT_FILE = CACHE_DIR / "cedict_ts.u8"
+from wordvec import COMMON_WORDS, bar, parse, unit
+from wordvec.datafiles import CEDICT_FILE, ensure_cedict, ensure_vectors
 
 BANNER = """
 ==============================================================
@@ -177,31 +161,12 @@ def load_jieba():
 
 # --------------------------------------------------------------- downloading
 
-def download(url, destination, label):
-    """Fetch `url` to `destination` with a one-line progress readout."""
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    partial = destination.with_suffix(destination.suffix + ".part")
-    print(f"Downloading {label}...")
-
-    def progress(blocks, block_size, total):
-        done = blocks * block_size
-        if total > 0:
-            print(f"\r  {min(done, total) / 1e6:6.1f} / {total / 1e6:.1f} MB",
-                  end="", flush=True)
-
-    urllib.request.urlretrieve(url, partial, progress)
-    partial.rename(destination)
-    print()
-
-
 def load_model(path=None):
     """Load the Chinese vectors, downloading the default set the first time."""
     from gensim.models import KeyedVectors
 
     if path is None:
-        path = VECTORS_FILE
-        if not path.exists():
-            download(VECTORS_URL, path, "Chinese word vectors (Tencent AI Lab, 116 MB)")
+        path = ensure_vectors()
     path = Path(path)
     print(f"Loading Chinese word vectors ({path.name})... ", end="", flush=True)
     binary = path.suffix == ".bin"
@@ -249,12 +214,7 @@ class Dictionary:
     """CC-CEDICT, indexed both ways: Chinese -> English and English -> Chinese."""
 
     def __init__(self, model):
-        if not CEDICT_FILE.exists():
-            archive = CACHE_DIR / "cedict.zip"
-            download(CEDICT_URL, archive, "CC-CEDICT Chinese-English dictionary (4 MB)")
-            with zipfile.ZipFile(archive) as bundle:
-                CEDICT_FILE.write_bytes(bundle.read("cedict_ts.u8"))
-            archive.unlink()
+        ensure_cedict()
 
         self.model = model
         self.entries = collections.defaultdict(list)   # hanzi -> [(pinyin, [senses])]
@@ -546,7 +506,87 @@ def handle_translate(model, dictionary, text):
 
 # ----------------------------------------------------------------- main loop
 
+def execute(model, dictionary, walks, active, line):
+    """Run one command line, printing the result; same contract as
+    wordvec.execute(). Returns the active walkthrough or wordvec.QUIT."""
+    from wordvec import QUIT
+    from wordvec import chinese_lessons as lessons
+
+    line = line.strip()
+    if not line:
+        if active is not None and active.step < len(active.steps):
+            active.move(model, +1)
+        return active
+
+    command, _, argument = line.partition(" ")
+    command = command.lower()
+    words = argument.split()
+
+    try:
+        if command in {"quit", "exit", "q"}:
+            print("Bye! 再见!")
+            return QUIT
+        if command in {"help", "?"}:
+            print(BANNER)
+        elif command in walks:
+            walk = walks[command]
+            target = walk.resolve(argument.strip().lower())
+            if target is None:
+                print(f"  No such step: '{argument.strip()}'.\n")
+            else:
+                walk.show(model, target)
+                return walk
+        elif command in {"next", "n"}:
+            if active is not None:
+                active.move(model, +1)
+            else:
+                print("  Nothing to advance. Type `tour` or `build` to start.\n")
+        elif command in {"back", "b", "prev"}:
+            if active is not None:
+                active.move(model, -1)
+            else:
+                print("  Nothing to go back to. Type `tour` or `build` to start.\n")
+        elif not words and any(command == n for n, _, _ in lessons.BUILD_STEPS):
+            walks["build"].show(model, walks["build"].resolve(command))
+            return walks["build"]
+        elif command == "twins":
+            lessons.handle_twins(model)
+        elif command == "context":
+            lessons.handle_context(model)
+        elif command == "attend":
+            lessons.handle_attend(model)
+        elif command == "near" and words:
+            handle_near(model, dictionary, words[0])
+        elif command == "show" and words:
+            handle_show(model, dictionary, words[0])
+        elif command == "compare":
+            if len(words) == 2:
+                handle_compare(model, dictionary, words[0], words[1])
+            else:
+                print("  Give me exactly two words, like: compare dog cat\n")
+        elif command in {"translate", "tr", "seg"} and words:
+            handle_translate(model, dictionary, argument)
+        else:
+            handle_equation(model, dictionary, line)
+    except ValueError as error:
+        print(f"  {error}")
+        print("  Try something like: king - man + woman\n")
+    return active
+
+
+def load_all(vectors_path=None):
+    """Load vectors + dictionary + walkthroughs. Returns (model, dictionary, walks)."""
+    from wordvec import chinese_lessons as lessons
+
+    model = load_model(vectors_path)
+    dictionary = Dictionary(model)
+    lessons.init(dictionary)
+    return model, dictionary, lessons.build_walkthroughs()
+
+
 def main(argv=None) -> None:
+    from wordvec import QUIT
+
     parser = argparse.ArgumentParser(
         prog="wordvec-zh", description="Word arithmetic in Chinese.")
     parser.add_argument(
@@ -557,82 +597,19 @@ def main(argv=None) -> None:
              "anything else = text, .bz2 is fine)")
     args = parser.parse_args(argv)
 
-    from wordvec import chinese_lessons as lessons
-
-    model = load_model(args.vectors)
-    dictionary = Dictionary(model)
-    lessons.init(dictionary)
-    walks = lessons.build_walkthroughs()
+    model, dictionary, walks = load_all(args.vectors)
     print(BANNER)
-    # Whichever walkthrough was most recently shown. Enter and `b` advance /
-    # rewind it, so the presenter can just keep pressing Enter.
     active = None
 
     while True:
         try:
-            line = input("词向量> ").strip()
+            line = input("词向量> ")
         except (EOFError, KeyboardInterrupt):
             print("\nBye! 再见!")
             return
-
-        if not line:
-            if active is not None and active.step < len(active.steps):
-                active.move(model, +1)
-            continue
-
-        command, _, argument = line.partition(" ")
-        command = command.lower()
-        words = argument.split()
-
-        try:
-            if command in {"quit", "exit", "q"}:
-                print("Bye! 再见!")
-                return
-            if command in {"help", "?"}:
-                print(BANNER)
-            elif command in walks:
-                walk = walks[command]
-                target = walk.resolve(argument.strip().lower())
-                if target is None:
-                    print(f"  No such step: '{argument.strip()}'.\n")
-                else:
-                    walk.show(model, target)
-                    active = walk
-            elif command in {"next", "n"}:
-                if active is not None:
-                    active.move(model, +1)
-                else:
-                    print("  Nothing to advance. Type `tour` or `build` to start.\n")
-            elif command in {"back", "b", "prev"}:
-                if active is not None:
-                    active.move(model, -1)
-                else:
-                    print("  Nothing to go back to. Type `tour` or `build` to start.\n")
-            elif not words and any(command == n for n, _, _ in lessons.BUILD_STEPS):
-                walks["build"].show(model, walks["build"].resolve(command))
-                active = walks["build"]
-            elif command == "twins":
-                lessons.handle_twins(model)
-            elif command == "context":
-                lessons.handle_context(model)
-            elif command == "attend":
-                lessons.handle_attend(model)
-            elif command == "near" and words:
-                handle_near(model, dictionary, words[0])
-            elif command == "show" and words:
-                handle_show(model, dictionary, words[0])
-            elif command == "compare":
-                if len(words) == 2:
-                    handle_compare(model, dictionary, words[0], words[1])
-                else:
-                    print("  Give me exactly two words, like: compare dog cat\n")
-            elif command in {"translate", "tr", "seg"} and words:
-                handle_translate(model, dictionary, argument)
-            else:
-                handle_equation(model, dictionary, line)
-        except ValueError as error:
-            print(f"  {error}")
-            print("  Try something like: king - man + woman\n")
+        active = execute(model, dictionary, walks, active, line)
+        if active is QUIT:
+            return
 
 
 if __name__ == "__main__":

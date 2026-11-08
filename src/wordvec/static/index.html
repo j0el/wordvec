@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Word Math</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <header class="top">
+    <div class="brand">
+      <a class="home" href="https://joelberman.net/">joelberman.net</a>
+      <h1 id="title">Word Math</h1>
+    </div>
+    <nav class="langs" aria-label="Language">
+      <a href="/en/" data-lang="en">English</a>
+      <a href="/zh/" data-lang="zh">中文</a>
+    </nav>
+  </header>
+
+  <main>
+    <section class="toolbar" aria-label="Walkthroughs">
+      <div id="buttons" class="buttons"></div>
+    </section>
+
+    <section id="console" class="console" aria-live="polite" tabindex="0"></section>
+
+    <section id="stepper" class="stepper" hidden>
+      <button id="back" type="button">‹ Back</button>
+      <span id="stepinfo"></span>
+      <button id="next" type="button" class="primary">Next ›</button>
+    </section>
+
+    <form id="form" class="prompt" autocomplete="off">
+      <label for="line" id="promptlabel">&gt;</label>
+      <input id="line" type="text" maxlength="200" spellcheck="false"
+             autocapitalize="off" autocorrect="off"
+             placeholder="Type an equation, or press Enter to advance">
+      <button type="submit" class="primary">Run</button>
+    </form>
+
+    <section class="examples" aria-label="Examples">
+      <span class="label">Try:</span>
+      <span id="examples"></span>
+    </section>
+  </main>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
