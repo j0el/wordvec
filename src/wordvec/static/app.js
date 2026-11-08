@@ -121,7 +121,8 @@ async function init() {
     button.addEventListener("click", () => { input.value = ""; run(example); });
     $("examples").appendChild(button);
   }
-  block(info.banner);
+  block("Pick a walkthrough above, click an example below, or type an equation.\nPress Enter on an empty line to advance a walkthrough.\n", "hint");
+  appendText($("helptext"), info.banner.replace(/^\n+/, "").replace(/\n+$/, ""));
   input.focus({ preventScroll: true });
 }
 

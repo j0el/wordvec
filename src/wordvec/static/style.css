@@ -28,11 +28,11 @@ body {
   background-attachment: fixed;
   display: flex;
   flex-direction: column;
-  align-items: center;
-  padding: 0 16px 32px;
+  align-items: stretch;
+  padding: 0 24px 32px;
 }
 
-.top, main { width: 100%; max-width: 980px; }
+.top, main { width: 100%; max-width: 1320px; }
 
 .top {
   display: flex;
@@ -61,7 +61,46 @@ h1 { margin: 2px 0 0; font-size: 1.5rem; font-weight: 700; }
   color: var(--text);
 }
 
-main { display: flex; flex-direction: column; gap: 12px; }
+/* App on the left margin, help text beside it on the right. */
+.layout {
+  display: grid;
+  grid-template-columns: minmax(0, 760px) minmax(0, 1fr);
+  gap: 20px;
+  align-items: start;
+}
+.app { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+
+.help {
+  position: sticky;
+  top: 16px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 16px 18px;
+  max-height: calc(100vh - 32px);
+  overflow: auto;
+}
+.help h2 {
+  margin: 0 0 8px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.help pre {
+  margin: 0;
+  font-family: var(--mono);
+  font-size: 0.74rem;
+  line-height: 1.5;
+  color: var(--text-soft);
+  white-space: pre;
+}
+
+@media (max-width: 1180px) {
+  .layout { grid-template-columns: minmax(0, 1fr); }
+  .help { position: static; max-height: none; }
+}
 
 button {
   font: inherit;
@@ -100,6 +139,7 @@ button:focus-visible, input:focus-visible, .console:focus-visible {
 .console pre { margin: 0 0 14px; white-space: pre; font: inherit; color: var(--text-soft); }
 .console .echo { color: var(--prompt); }
 .console .echo b { color: var(--text); font-weight: 600; }
+.console .hint { color: var(--muted); }
 .console .error { color: #ff8f8f; }
 
 /* Chinese characters are two terminal cells wide. Fallback CJK fonts are not

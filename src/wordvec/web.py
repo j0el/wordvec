@@ -71,7 +71,7 @@ class Chinese:
 # (button label, command). Same on both pages; the panels differ by language.
 BUTTONS = [("Full story", "full"), ("Tour", "tour"), ("Build", "build"),
            ("Generate", "generate"), ("Twins", "twins"), ("Context", "context"),
-           ("Attend", "attend"), ("Help", "help")]
+           ("Attend", "attend")]
 
 
 def create_app(languages=None):
