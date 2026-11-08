@@ -26,7 +26,7 @@ from pathlib import Path
 
 import numpy as np
 
-from wordvec import COMMON_WORDS, bar, describe, parse, unit
+from wordvec import COMMON_WORDS, Walkthrough, bar, parse, unit
 
 CACHE_DIR = Path.home() / ".cache" / "wordvec"
 
@@ -54,6 +54,25 @@ need to read Chinese: type English and it is translated for
 you, and every answer comes back with pinyin and an English
 meaning.
 
+  full              THE WHOLE STORY in 14 steps -- tour + build
+                    + context + attend + generate, chained. Press
+                    Enter to advance, `b` to go back.
+  tour              a shorter 4-step overview (easiest idea first)
+  build             where the numbers come from: cuts 16 Chinese
+                    sentences into words (jieba), then trains vectors
+                    from scratch, one step at a time:
+                      build 1  sentences    the text it learns from
+                      build 2  counts       tally the neighbours
+                      build 3  svd          rank the patterns
+                      build 4  compress     squeeze to 2 numbers
+                      build 5  plot         did it work?
+  generate          same corpus, used to produce text:
+                      generate 1  follows      what follows what
+                      generate 2  probability  normalize
+                      generate 3  sample       produce sentences
+
+Or explore directly:
+
   <equation>        English or Chinese, for example:
 
       king - man + woman
@@ -63,6 +82,9 @@ meaning.
   near <word>       the words used most like <word>
   compare <a> <b>   how related are two words?
   show <word>       peek at the numbers behind a word
+  twins             which words are almost identical -- and why
+  context           one word, two meanings: which sense survives?
+  attend            a toy attention head that fixes it
   translate <text>  English -> Chinese, or cut a Chinese sentence
                     into words (jieba) and translate each one:
                       translate happy
@@ -82,10 +104,41 @@ OVERRIDES = {
     "people": "人们", "car": "汽车", "money": "钱", "student": "学生",
 }
 
+# Brand and place names whose dictionary entry only gives the ordinary meaning
+# (宝马 is "precious horse" in CC-CEDICT). Shown instead of the dictionary gloss.
+GLOSS_OVERRIDES = {
+    "宝马": "BMW (lit. precious horse)", "三星": "Samsung (lit. three stars)",
+    "小米": "Xiaomi; also millet", "苹果": "apple; also Apple Inc.",
+    "奔驰": "Mercedes-Benz; also to gallop", "红米": "Redmi (Xiaomi phones)",
+    "高通": "Qualcomm", "一加": "OnePlus", "雷军": "Lei Jun (Xiaomi founder)",
+    "吉利": "Geely (car maker); also lucky", "一汽": "FAW (car maker)",
+    "东风": "Dongfeng (car maker); also east wind",
+    "红旗": "red flag; also Hongqi (car brand)",
+    "路虎": "Land Rover", "奔驰车": "Mercedes-Benz car",
+    "杨幂": "Yang Mi (actress)", "赵丽颖": "Zhao Liying (actress)",
+}
+
 # Dictionary senses that describe something other than the word's meaning.
 SKIP_SENSES = ("surname", "variant of", "old variant", "abbr.", "see ", "CL:",
                "also pr", "Taiwan pr", "used in", "erhua", "(Tw)", "archaic",
                "Kangxi radical", "radical in Chinese")
+
+# Thresholds measured on this model: 20,000 random pairs of common words have a
+# median similarity of 0.25 (95th percentile 0.41), so "unrelated" is ~0.25
+# here, not ~0 as in the English GloVe vectors. 狗/猫 scores 0.75, 狗/骨头 0.45.
+RELATEDNESS = [
+    (0.65, "very closely related"),
+    (0.45, "clearly related"),
+    (0.33, "loosely related"),
+]
+
+
+def describe(score):
+    for threshold, text in RELATEDNESS:
+        if score >= threshold:
+            return text
+    return "basically unrelated -- about what two random words score"
+
 
 HANZI_RE = re.compile(r"[一-鿿]")
 ONLY_HANZI_RE = re.compile(r"^[一-鿿]+$")
@@ -223,6 +276,8 @@ class Dictionary:
 
     def gloss(self, hanzi, limit=44):
         """Short English meaning of a Chinese word, falling back to its parts."""
+        if hanzi in GLOSS_OVERRIDES:
+            return self._clip(GLOSS_OVERRIDES[hanzi], limit)
         senses = self._senses(hanzi)
         if senses:
             return self._clip("; ".join(senses[:2]), limit)
@@ -242,7 +297,8 @@ class Dictionary:
         for _, senses in entries:
             good = [CLASSIFIER_RE.sub("", s) for s in senses if not s.startswith(SKIP_SENSES)]
             if good:
-                return good
+                # Plain meanings first; "(dialect) ..." and "(literary) ..." last.
+                return sorted(good, key=lambda sense: sense.startswith("("))
         return []
 
     @staticmethod
@@ -430,6 +486,7 @@ def handle_compare(model, dictionary, first, second):
     score = float(model.similarity(a, b))
     print()
     print(f"    {label(dictionary, a)} <-> {label(dictionary, b)}")
+    print(f"    {dictionary.gloss(a, 24)} <-> {dictionary.gloss(b, 24)}")
     print(f"    {bar(score)}  {score:+.3f}  ({describe(score)})\n")
 
 
@@ -483,9 +540,16 @@ def main(argv=None) -> None:
              "anything else = text, .bz2 is fine)")
     args = parser.parse_args(argv)
 
+    from wordvec import chinese_lessons as lessons
+
     model = load_model(args.vectors)
     dictionary = Dictionary(model)
+    lessons.init(dictionary)
+    walks = lessons.build_walkthroughs()
     print(BANNER)
+    # Whichever walkthrough was most recently shown. Enter and `b` advance /
+    # rewind it, so the presenter can just keep pressing Enter.
+    active = None
 
     while True:
         try:
@@ -493,7 +557,10 @@ def main(argv=None) -> None:
         except (EOFError, KeyboardInterrupt):
             print("\nBye! 再见!")
             return
+
         if not line:
+            if active is not None and active.step < len(active.steps):
+                active.move(model, +1)
             continue
 
         command, _, argument = line.partition(" ")
@@ -506,6 +573,33 @@ def main(argv=None) -> None:
                 return
             if command in {"help", "?"}:
                 print(BANNER)
+            elif command in walks:
+                walk = walks[command]
+                target = walk.resolve(argument.strip().lower())
+                if target is None:
+                    print(f"  No such step: '{argument.strip()}'.\n")
+                else:
+                    walk.show(model, target)
+                    active = walk
+            elif command in {"next", "n"}:
+                if active is not None:
+                    active.move(model, +1)
+                else:
+                    print("  Nothing to advance. Type `tour` or `build` to start.\n")
+            elif command in {"back", "b", "prev"}:
+                if active is not None:
+                    active.move(model, -1)
+                else:
+                    print("  Nothing to go back to. Type `tour` or `build` to start.\n")
+            elif not words and any(command == n for n, _, _ in lessons.BUILD_STEPS):
+                walks["build"].show(model, walks["build"].resolve(command))
+                active = walks["build"]
+            elif command == "twins":
+                lessons.handle_twins(model)
+            elif command == "context":
+                lessons.handle_context(model)
+            elif command == "attend":
+                lessons.handle_attend(model)
             elif command == "near" and words:
                 handle_near(model, dictionary, words[0])
             elif command == "show" and words:

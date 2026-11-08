@@ -157,10 +157,19 @@ meaning.
     王子 (wáng zǐ)           #############.......  0.651  prince; son of a king
 ```
 
-You can also type Chinese directly (`国王 - 男人 + 女人`). Commands: equations,
-`near`, `compare`, `show`, and `translate`, which uses **jieba** to cut a
-Chinese sentence into words (written Chinese has no spaces, so this has to
-happen before any lookup) and glosses each one.
+You can also type Chinese directly (`国王 - 男人 + 女人`). The commands mirror
+the English program:
+
+| Input | What it does |
+| --- | --- |
+| `full` | 14-step chained walkthrough: tour → build → context → attend → generate |
+| `tour` | 4-step overview: numbers, neighbours, distance, direction |
+| `build` | trains vectors from scratch on 16 Chinese sentences, 5 steps (`build counts`, `build plot`, ...) |
+| `generate` | bigram language model on the same sentences, 3 steps |
+| Enter / `b` | advance / go back in the active walkthrough |
+| `near`, `compare`, `show` | as in English, with pinyin and an English gloss on every Chinese word |
+| `twins` / `context` / `attend` | near-identical pairs; one word with two meanings; the attention fix |
+| `translate <text>` | English → Chinese, or **jieba** cuts a Chinese sentence into words and glosses each |
 
 | Piece | What it is |
 | --- | --- |
@@ -189,8 +198,18 @@ Things that differ from the English demo:
 - **Compounds are filtered out of answers.** Chinese builds words by gluing
   characters together, so the nearest neighbour of 医生 (doctor) is often 主治医生
   (attending doctor). Answers that contain an input word are dropped.
-- **Walkthroughs are not ported.** `tour`, `build` etc. rely on an English toy
-  corpus; only the interactive commands exist in Chinese so far.
+- **`build` starts one step earlier.** Written Chinese has no spaces, so step 1
+  shows jieba deciding where the words are before anything is counted.
+- **Different examples.** `bank`/`bat`/`crane` don't carry over, so `context` and
+  `attend` use words Chinese really has: 苹果 (apple / Apple Inc.), 小米 (millet /
+  Xiaomi), 奔驰 (gallop / Mercedes-Benz), and 红旗 (red flag / Hongqi cars), which
+  keeps *both* senses the way `python` does in English.
+- **The "unrelated" floor is higher.** Random word pairs score about 0.25 in this
+  model (not about 0), so the relatedness labels are shifted to match. The
+  happy/sad caveat still holds: 高兴 (happy) is closer to 难过 (sad) at 0.708
+  than to 快乐 (joyful) at 0.561.
+- **`build` captures less.** The top two patterns explain about 53% of the
+  Chinese toy table, so the text says "most important", not "nearly all".
 
 ## Going deeper: SVD
 
