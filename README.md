@@ -133,6 +133,65 @@ The program scales each word's vector to the same length, adds and subtracts
 them, then looks for the known words closest to the result. The input words are
 excluded from the answer, since a word is always closest to itself.
 
+## Chinese version (`wordvec-zh`)
+
+```sh
+uv run wordvec-zh
+```
+
+The same word arithmetic, but the vectors were learned from Chinese text, so
+the math happens in Chinese. You don't need to read it: type English and it is
+translated for you, and every answer comes back with pinyin and an English
+meaning.
+
+```
+词向量> king - man + woman
+
+  Translating your words:
+    king       -> 国王 (guó wáng)
+    man        -> 男人 (nán rén)
+    woman      -> 女人 (nǚ rén)
+
+    王后 (wáng hòu)          ##############......  0.705  queen
+    爵士 (jué shì)           #############.......  0.656  knight; Sir
+    王子 (wáng zǐ)           #############.......  0.651  prince; son of a king
+```
+
+You can also type Chinese directly (`国王 - 男人 + 女人`). Commands: equations,
+`near`, `compare`, `show`, and `translate`, which uses **jieba** to cut a
+Chinese sentence into words (written Chinese has no spaces, so this has to
+happen before any lookup) and glosses each one.
+
+| Piece | What it is |
+| --- | --- |
+| Vectors | [Tencent AI Lab Chinese embeddings](https://ai.tencent.com/ailab/nlp/en/embedding.html), light edition: 143,613 words x 200 numbers (Apache-2.0, 116 MB) |
+| Dictionary | [CC-CEDICT](https://cc-cedict.org/) (CC BY-SA 4.0): English -> Chinese for your input, Chinese -> English and pinyin for the output |
+| Word cutting | [jieba](https://github.com/fxsjy/jieba) |
+
+Both downloads land in `~/.cache/wordvec` on first run.
+
+**People's Daily vectors.** The [Chinese-Word-Vectors](https://github.com/Embedding/Chinese-Word-Vectors)
+project publishes vectors trained on People's Daily (1946-2017), but only via
+Baidu Pan, which can't be scripted. Download `sgns.renmin.word` by hand and run:
+
+```sh
+uv run wordvec-zh --vectors ~/Downloads/sgns.renmin.word
+```
+
+Things that differ from the English demo:
+
+- **Translation is a guess.** English words map to several Chinese ones (`man`
+  could be 男人, 汉子, 男士...). It picks the first dictionary sense, with a
+  small `OVERRIDES` table for cases where that is wrong (`doctor` -> 博士, a PhD).
+  Each equation prints what it picked and the runner-up options.
+- **No `walking - walk + swim`.** Chinese doesn't inflect verbs, so the
+  grammatical-tense analogies don't exist; `walking` just becomes 走 like `walk`.
+- **Compounds are filtered out of answers.** Chinese builds words by gluing
+  characters together, so the nearest neighbour of 医生 (doctor) is often 主治医生
+  (attending doctor). Answers that contain an input word are dropped.
+- **Walkthroughs are not ported.** `tour`, `build` etc. rely on an English toy
+  corpus; only the interactive commands exist in Chinese so far.
+
 ## Going deeper: SVD
 
 Step 3 of `build` uses SVD to compress the co-occurrence table. The same move

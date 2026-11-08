@@ -9,6 +9,7 @@ authors = [
 requires-python = ">=3.13"
 dependencies = [
     "gensim>=4.4.0",
+    "jieba>=0.42.1",
     "np>=1.0.2",
     "numpy>=2.5.4",
     "sentence-transformers>=6.2.0",
@@ -16,6 +17,7 @@ dependencies = [
 
 [project.scripts]
 wordvec = "wordvec:main"
+wordvec-zh = "wordvec.chinese:main"
 
 [build-system]
 requires = ["uv_build>=0.13.1,<0.14.0"]
