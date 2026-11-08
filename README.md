@@ -211,6 +211,36 @@ Things that differ from the English demo:
 - **`build` captures less.** The top two patterns explain about 53% of the
   Chinese toy table, so the text says "most important", not "nearly all".
 
+## Web app and Docker
+
+Both programs are also available in the browser as a terminal-style page, with
+buttons for the walkthroughs and clickable example equations. Enter on an empty
+line advances a walkthrough, as in the terminal.
+
+```sh
+uv run wordvec-web        # http://127.0.0.1:8000/en/  and  /zh/
+```
+
+| Path | |
+| --- | --- |
+| `/en/` | English (GloVe) |
+| `/zh/` | Chinese (Tencent vectors + CC-CEDICT + jieba) |
+| `/healthz` | liveness check |
+| `POST /api/<lang>/run` | `{"line": "...", "state": {...}}` → `{"output", "state", "clear"}` |
+
+The page is a thin client: each line goes to the same `execute()` the terminal
+loop uses, with stdout captured. Walkthrough position is held by the browser and
+sent with each request, so several people can use it at once. Chinese characters
+are pinned to two character-widths in CSS so the tables the program lays out with
+spaces still line up.
+
+`docker compose up -d --build` builds an image (about 1 GB) with both sets of
+vectors and the dictionary baked in, so it never downloads anything at run time.
+It runs as an unprivileged user under gunicorn with one worker and both models
+loaded before the port opens (about 20 seconds, 480 MB of RAM), and joins an
+external Docker network named `homelab-gateway_proxy`. Nothing is published on a
+host port; a reverse proxy reaches it as `wordvec:8000`.
+
 ## Going deeper: SVD
 
 Step 3 of `build` uses SVD to compress the co-occurrence table. The same move
