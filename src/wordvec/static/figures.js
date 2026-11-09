@@ -69,8 +69,15 @@ const Figures = (() => {
     const { box, canvas } = frame("A small table rebuilt from two layers", 720, 610);
     const size = 42;
     const labels = (parent, x, y, rows, cols) => {
-      cols.forEach((c, j) => text(parent, x + j * size + size / 2, y - 6, c, "axs",
-                                  { "text-anchor": "middle" }));
+      cols.forEach((c, j) => {
+        const [first, second] = c.split(" ");
+        if (second === undefined) {
+          text(parent, x + j * size + size / 2, y - 6, c, "axs", { "text-anchor": "middle" });
+        } else {   // "尾巴 tail": the word above its English
+          text(parent, x + j * size + size / 2, y - 18, first, "axs", { "text-anchor": "middle" });
+          text(parent, x + j * size + size / 2, y - 6, second, "axs", { "text-anchor": "middle" });
+        }
+      });
       rows.forEach((r, i) => text(parent, x - 8, y + i * size + size / 2 + 4, r, "axs",
                                   { "text-anchor": "end" }));
     };
@@ -86,7 +93,7 @@ const Figures = (() => {
     const blocks = spec.layers.map((layer, k) => {
       const top = 236 + k * 188;
       const g = svg("g", {}, canvas);
-      text(g, 20, top - 22, `LAYER ${k + 1}  =  strength  ×  column  ×  row   (strength ${layer.strength.toFixed(2)})`, "figtitle");
+      text(g, 20, top - 22, `${k ? "+   " : ""}LAYER ${k + 1}  =  strength  ×  column  ×  row   (strength ${layer.strength.toFixed(2)})`, "figtitle");
       matrix(g, layer.column.map((v) => [v]), 100, top, size, 1);
       numbers(g, layer.column, 100, top, true);
       text(g, 100 + size / 2, top + 3 * size + 16, "column", "axs", { "text-anchor": "middle" });
@@ -103,7 +110,6 @@ const Figures = (() => {
       matrix(g, layer.matrix, 590, top, size, 4, { numbers: true });
       return g;
     });
-    const plus = text(canvas, 340, 396, "+", "op", { style: "display:none" });
     const summary = text(canvas, 20, 598, "Layer 1 + layer 2 = the table again, cell for cell.",
                          "figtitle", { style: "display:none" });
 
@@ -112,7 +118,6 @@ const Figures = (() => {
     let both = false;
     const show = () => {
       blocks[1].style.display = both ? "" : "none";
-      plus.style.display = both ? "" : "none";
       summary.style.display = both ? "" : "none";
       canvas.setAttribute("viewBox", `0 0 720 ${both ? 610 : 420}`);
       button.textContent = both ? "Start over" : "Add layer 2";
@@ -128,7 +133,8 @@ const Figures = (() => {
     const n = spec.words.length;
     const cell = 10;
     const mapSize = n * cell;
-    const left = 70, gap = 26;
+    const wide = (word) => [...word].reduce((sum, ch) => sum + (ch.charCodeAt(0) > 0x2e80 ? 9 : 5.4), 0);
+    const left = Math.max(70, Math.max(...spec.words.map(wide)) + 14), gap = 26;
     const width = left + 3 * mapSize + 2 * gap + 10;
     const { box, canvas } = frame("The table rebuilt from its strongest layers", width, 330);
     const mapY = 40;
@@ -231,7 +237,8 @@ const Figures = (() => {
     const x0 = 60, span = 540, max = 1.6;
     const at = (v) => x0 + (v / max) * span;
 
-    text(canvas, 20, 24, "THE GUESS (wagged × tail) MOVES TOWARD THE TARGET", "figtitle");
+    const names = spec.names || ["wagged", "tail"];
+    text(canvas, 20, 24, `THE GUESS (${names[0]} × ${names[1]}) MOVES TOWARD THE TARGET`, "figtitle");
     svg("rect", { x: x0, y: 44, width: span, height: 22, rx: 4, class: "track" }, canvas);
     const guessBar = svg("rect", { x: x0, y: 44, width: 0, height: 22, rx: 4, class: "barkept" }, canvas);
     svg("line", { x1: at(spec.target), x2: at(spec.target), y1: 36, y2: 74, class: "targetline" }, canvas);
@@ -239,7 +246,7 @@ const Figures = (() => {
     const guessLabel = text(canvas, x0, 90, "", "axis");
 
     text(canvas, 20, 132, "THE TWO NUMBERS BEING ADJUSTED", "figtitle");
-    const boxes = [["wagged", 90], ["tail", 330]].map(([name, x]) => {
+    const boxes = [[names[0], 90], [names[1], 330]].map(([name, x]) => {
       svg("rect", { x, y: 146, width: 150, height: 44, rx: 8, class: "numbox" }, canvas);
       text(canvas, x + 14, 164, name, "axis");
       return text(canvas, x + 136, 180, "", "bignum", { "text-anchor": "end" });
@@ -302,11 +309,10 @@ const Figures = (() => {
     // controls
     const picker = controls(box);
     html("span", { class: "readout" }, picker, "Step size:");
-    let current = spec.runs.findIndex((r) => r.step === 0.08);
+    let current = spec.runs.findIndex((r) => r.good);
     if (current < 0) current = 0;
-    const names = { 0.01: "0.01 · too small", 0.08: "0.08 · good", 0.25: "0.25 · too big" };
     const pick = spec.runs.map((run, i) => {
-      const button = html("button", { type: "button" }, picker, names[run.step] || String(run.step));
+      const button = html("button", { type: "button" }, picker, run.label || String(run.step));
       button.addEventListener("click", () => { current = i; marks(); handle.slider.value = 0; handle.update(); handle.go(); });
       return button;
     });

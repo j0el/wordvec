@@ -20,7 +20,10 @@ from collections import Counter, defaultdict
 
 import numpy as np
 
-from wordvec import Walkthrough, bar
+from wordvec import (
+    DESCENT_ROUNDS, MINI_TABLE, Walkthrough, bar, descend, descend_pair,
+    descent_spec, figure, oriented_svd, rank_k,
+)
 from wordvec.chinese import (
     candidates, handle_compare, handle_equation, handle_near, handle_show,
     label, load_jieba, pad, print_results, width,
@@ -181,46 +184,280 @@ def build_step_sentences(model, trained):
     print("  what a single word means -- it only gets the raw text.")
 
 
+# ------------------------------------------------ SVD and gradient descent
+# Same teaching steps as the English `build`, on the Chinese table. The maths
+# helpers and figure plumbing are shared (wordvec.oriented_svd, descend, ...).
+
+ZH_PETS = set("狗 小狗 猫 小猫 叫 摇 尾巴 兽医 舔 毛 呼噜".split())
+ZH_MINI_ROWS = ["狗", "小狗", "蛋糕"]
+ZH_MINI_COLS = ["摇", "尾巴", "烤箱"]
+# Step sizes for this table: a crawl, a good one, too much. The Chinese table is
+# a little smaller than the English one, so it stays stable at a different size.
+ZH_DESCENT_STEPS = [0.005, 0.08, 0.3]
+
+
+def zh_grid(values, rows, cols, fmt="{:g}", blank_zero=False, cell=8):
+    """A small labelled table whose columns line up despite wide characters."""
+    print("  " + " " * 8 + "".join(pad(c, cell) for c in cols))
+    for r, row in zip(rows, values):
+        cells = "".join(pad("." if blank_zero and v == 0 else fmt.format(v), cell) for v in row)
+        print("  " + pad(r, 8) + cells)
+
+
+def zh_key(words):
+    print("  Key: " + ", ".join(tagged(w) for w in words))
+
+
 def build_step_counts(model, trained):
-    _, index, counts, _, _ = trained
-    print(f"  For every word, tally the words appearing within {TOY_WINDOW} places of it.")
-    print("  Reading across: how often each row-word sat near each column-word.\n")
-    print("        " + "".join(pad(c, 8) for c in TOY_COLS))
-    for row_word in TOY_ROWS:
-        tally = "".join(pad(str(int(counts[index[row_word], index[c]])), 8) for c in TOY_COLS)
-        print(f"  {pad(row_word, 6)}" + tally)
-    print("\n  Key: " + ", ".join(tagged(w) for w in TOY_ROWS))
-    print("       " + ", ".join(tagged(w) for w in TOY_COLS))
-    print("\n  That is the whole trick. Compare the 狗 (dog) and 小狗 (puppy) rows --")
-    print("  nearly the same, because those two words keep the same company.")
-    print("  面包 (bread) and 蛋糕 (cake) match each other, but not them.")
-    print("\n  Each row is ALREADY a list of numbers describing a word.")
+    vocab, index, counts, _, _ = trained
+    sentence = TOY_CORPUS[1][0]
+    pieces = cut(sentence)
+    kept = [w for w in pieces if w in index]
+    pairs = [(kept[i], kept[j]) for i in range(len(kept))
+             for j in range(i + 1, min(len(kept), i + TOY_WINDOW + 1))]
+
+    print("  We want a list of numbers for each word. Start with a table whose")
+    print(f"  rows AND columns are the same {len(vocab)} words. Each cell answers:")
+    print(f"  how often did these two words appear within {TOY_WINDOW} places of")
+    print("  each other?\n")
+    print("  Two rules keep the table meaningful:")
+    print("    - skip filler words (的 'of', 了 'past marker', 又 'and', 它 'it' ...):")
+    print("      they sit next to everything and tell us nothing")
+    print("    - skip words seen only once: one sighting is not a pattern\n")
+    print(f"  ONE SENTENCE BY HAND:  {sentence}  ({TOY_CORPUS[1][1]})")
+    print("  jieba cuts it into words:  " + " | ".join(pieces))
+    print("  Drop the filler and rare words, keep:  " + " ".join(kept))
+    print("  Every pair within 2 places gets +1:")
+    print("    " + "   ".join(f"{a}-{b}" for a, b in pairs))
+    print("  Do that for all 16 sentences. A corner of the finished table:\n")
+
+    corner = ["狗", "小狗", "摇", "尾巴", "烤箱", "面包"]
+    picks = [index[w] for w in corner]
+    zh_grid(counts[np.ix_(picks, picks)].astype(int), corner, corner, blank_zero=True)
+    print()
+    zh_key(corner)
+
+    biggest = counts.max()
+    top_pairs = sorted({tuple(sorted((vocab[i], vocab[j])))
+                        for i, j in zip(*np.where(counts == biggest))})
+    empty = int((counts == 0).sum())
+    dog_row = [vocab[j] for j in np.nonzero(counts[index["狗"]])[0]]
+    puppy_row = [vocab[j] for j in np.nonzero(counts[index["小狗"]])[0]]
+    print("\n  What to notice:")
+    print(f"    - the biggest count anywhere is {int(biggest)}: "
+          + ", ".join(f"{a}-{b}" for a, b in top_pairs))
+    print("    - it is a mirror image: if 摇 sits near 尾巴, 尾巴 sits near 摇.")
+    print("      The diagonal is empty (a word is not its own neighbour)")
+    print(f"    - it is mostly empty: {empty} of {counts.size} cells are 0. A word")
+    print("      only touches the few words it actually sat beside")
+    print(f"    - 狗 (dog) row     = {', '.join(dog_row)}")
+    print(f"      小狗 (puppy) row = {', '.join(puppy_row)}")
+    print("      different words, overlapping neighbours: similar rows")
+    print("\n  Each row is ALREADY a list of numbers for a word. But it is long")
+    print("  and mostly empty, which is what the next steps compress.")
+    print("\n  One squash first: replace each count c with log(1 + c).")
+    squash = ",  ".join(f"{c} -> {np.log1p(c):.2f}" for c in range(int(biggest) + 1))
+    print(f"    {squash}")
+    print("  The biggest pair now counts about twice a single sighting, not")
+    print("  three times, so a few common pairs cannot drown out the rest.")
 
 
-def build_step_svd(model, trained):
-    vocab, _, _, strength, _ = trained
-    print(f"  {len(vocab)} numbers per word is too many. We want two -- but WHICH")
-    print("  two? SVD answers that. It finds patterns across the whole table")
-    print("  and ranks them by how much of the table each one explains.")
-    print(f"  Here are all {len(strength)}, strongest first:\n")
+def build_step_layers(model, trained):
+    left, strength, right = oriented_svd(MINI_TABLE)
+    rows = [tagged(w) for w in ZH_MINI_ROWS]
+    cols = [tagged(w) for w in ZH_MINI_COLS]
+    print("  SVD takes a table of numbers and breaks it into LAYERS. Add the")
+    print("  layers back together and you get the table again. Each layer is")
+    print("  one simple pattern, with a STRENGTH saying how big it is.\n")
+    print("  A tiny table you can check by hand (numbers made up):\n")
+    zh_grid(MINI_TABLE.astype(int), ZH_MINI_ROWS, ZH_MINI_COLS)
+    print()
+    zh_key(ZH_MINI_ROWS + ZH_MINI_COLS)
+    print("\n  Two patterns are easy to see:")
+    print("    layer 1: the pets, with 狗 and 小狗 moving together (2 2 / 3 3)")
+    print("    layer 2: the lone 4 for 蛋糕 (cake) and 烤箱 (oven)\n")
+    print("  Every layer is built from three ingredients:")
+    print("    - a COLUMN of numbers, one per row-word")
+    print("    - a ROW of numbers, one per column-word")
+    print("    - a STRENGTH")
+    print("  and each cell of the layer is   strength x column x row.\n")
+    layers = []
+    for k in range(2):
+        column, row = left[:, k], right[k]
+        layer = strength[k] * np.outer(column, row)
+        layers.append(layer)
+        print(f"  LAYER {k + 1}   strength {strength[k]:.2f}")
+        print(f"    column {np.round(column, 2) + 0.0}   row {np.round(row, 2) + 0.0}")
+        if k == 0:
+            print(f"    check one cell, 狗/摇:    {strength[0]:.2f} x {column[0]:.2f}"
+                  f" x {row[0]:.2f} = {layer[0, 0]:.1f}")
+        else:
+            print(f"    check one cell, 蛋糕/烤箱: {strength[1]:.2f} x {column[2]:.2f}"
+                  f" x {row[2]:.2f} = {layer[2, 2]:.1f}")
+        zh_grid(np.round(layer, 1) + 0.0, ZH_MINI_ROWS, ZH_MINI_COLS, fmt="{:.1f}")
+        print()
+    print("  Add layer 1 + layer 2 and every cell matches the original table.\n")
+    print("  Where does a strength come from? Square every cell of a layer, add")
+    print("  them up, take the square root:")
+    print(f"    layer 1:  sqrt(2^2 + 2^2 + 3^2 + 3^2) = sqrt(26) = {strength[0]:.2f}")
+    print(f"    layer 2:  sqrt(4^2) = {strength[1]:.2f}")
+    print("  A bigger strength means more of the table lives in that layer.\n")
+    print("  SVD finds the layers automatically, even when patterns overlap")
+    print("  and are not this clean, and lists them strongest first. Keep")
+    print("  only the strongest few and you rebuild most of the table from")
+    print("  far fewer numbers. Next: do exactly this to the real table.")
+
+    figure({"kind": "svd-mini", "rows": rows, "cols": cols,
+            "table": MINI_TABLE.tolist(),
+            "layers": [{"strength": round(float(strength[k]), 2),
+                        "column": (np.round(left[:, k], 2) + 0.0).tolist(),
+                        "row": (np.round(right[k], 2) + 0.0).tolist(),
+                        "matrix": (np.round(layers[k], 2) + 0.0).tolist()} for k in range(2)]})
+
+
+def build_step_strengths(model, trained):
+    vocab, index, counts, _, _ = trained
+    table = np.log1p(counts)
+    left, strength, right = oriented_svd(table, flip_by={1: index["摇"]})
+    energy = strength ** 2
+    total = energy.sum()
+    share = 100 * energy / total
+    size = len(vocab)
+
+    print(f"  The real table: {size} words x {size} neighbours, with each")
+    print("  count squashed by log(1 + count). Same recipe as the tiny one:")
+    print(f"  SVD splits it into {len(strength)} layers. Their strengths,")
+    print("  strongest first:\n")
     for position, value in enumerate(strength, start=1):
         print(f"    [{position:>2}]  {value:5.2f}  {'#' * int(value * 4)}")
-    captured = 100 * (strength[:2] ** 2).sum() / (strength ** 2).sum()
-    print(f"\n  The top two alone capture {captured:.0f}% of the table -- far more than")
-    print("  any other pair, though not everything. Keep the top 2 and you have")
-    print("  the dominant patterns in two numbers. That is the compression.")
+    print(f"\n  So {strength[0]:.2f} is simply the strength of layer 1, {strength[1]:.2f} of layer 2.")
+    print("  Same meaning as before: square every cell of the layer, add up,")
+    print("  square root. Squaring the strengths gives each layer's share of")
+    print("  the table's total size:")
+    print(f"    total = {total:.1f}  (the sum of the squares of all {counts.size} cells)")
+    print(f"    layer 1:  {strength[0]:.2f}^2 = {energy[0]:.1f}   -> {share[0]:.0f}% of the table")
+    print(f"    layer 2:  {strength[1]:.2f}^2 = {energy[1]:.1f}   -> {share[1]:.0f}% of the table")
+    print(f"    together: {share[:2].sum():.0f}%.  (About half the table, not all of it --")
+    print("    two layers is a rough sketch, good enough to draw.)\n")
+
+    first = np.argsort(-np.abs(left[:, 0]))[:5]
+    pos = np.argsort(-left[:, 1])[:4]
+    neg = np.argsort(left[:, 1])[:3]
+    print("  What are the layers? Each gives every word a score:")
+    print("    layer 1 scores highest on " + ", ".join(tagged(vocab[i]) for i in first) + ".")
+    print("      Not a topic: it measures how much company a word keeps.")
+    print("      The baking and eating words sit next to more words, so they score big.")
+    print("    layer 2 is the real split:")
+    print("      one side   " + ", ".join(f"{tagged(vocab[i])} ({left[i, 1]:+.2f})" for i in pos))
+    print("      other side " + ", ".join(f"{tagged(vocab[i])} ({left[i, 1]:+.2f})" for i in neg))
+    print("      Pets on one side, baking on the other. Nobody told it.\n")
+    print("  SVD is the PRECISE method: it computes the best possible answer")
+    print(f"  in one go. The catch is size. This table is {size} x {size}. The real")
+    print(f"  Chinese model's is {len(model.index_to_key):,} x {len(model.index_to_key):,}, and doing SVD on that is")
+    print("  slow and needs enormous memory. Real models use a second method")
+    print("  that is faster and almost as good: gradient descent. Next.")
+
+    order = list(np.argsort(-left[:, 1]))
+    keep = [rank_k(left, strength, right, k)[np.ix_(order, order)] for k in range(len(strength) + 1)]
+    figure({"kind": "svd-real",
+            "words": [tagged(vocab[i]) for i in order],
+            "pets": [vocab[i] in ZH_PETS for i in order],
+            "strengths": np.round(strength, 2).tolist(),
+            "share": np.round(share, 1).tolist(),
+            "table": np.round(table[np.ix_(order, order)], 2).tolist(),
+            "recon": [np.round(m, 2).tolist() for m in keep]})
+
+
+def build_step_descent(model, trained):
+    vocab, index, counts, _, _ = trained
+    count = int(counts[index["摇"], index["尾巴"]])
+    target = float(np.log1p(count))
+    step = 0.2
+    frames = descend_pair(target, step, 60)
+    print("  Gradient descent finds good numbers by trial and correction:")
+    print("  guess, measure how wrong, nudge to be a little less wrong, repeat.\n")
+    print("  ONE PAIR, BY HAND. 摇 (wag) and 尾巴 (tail) sat together")
+    print(f"  {count} times, which the squash turns into a")
+    print(f"  TARGET of log(1 + {count}) = {target:.2f}.\n")
+    print("  Each word gets one number to start with; say 0.5 each. The model's")
+    print("  GUESS for the pair is the two numbers multiplied:")
+    print(f"    0.5 x 0.5 = {frames[0][2]:.2f}.  Far below {target:.2f}, so the ERROR is "
+          f"{frames[0][3]:+.2f}.\n")
+    print("  The nudge: if the guess is too low, both numbers should go up.")
+    print(f"      new number = old number - {step} x error x the OTHER number")
+    print("  A big error gives a big nudge; a small error, a small one.\n")
+    print("    round     摇 (wag)   尾巴 (tail)   guess    error")
+    for r in [0, 1, 2, 3, 4, 5, 6, 8, 10, 15, 20, 40, 60]:
+        a, b, guess, error = frames[r]
+        error = error if abs(error) >= 0.0005 else 0.0
+        print(f"    {r:>5}      {a:6.3f}      {b:6.3f}    {guess:6.3f}  {error:+7.3f}")
+    print("\n  The nudges shrink as the error shrinks: quick at first, then")
+    print("  easing in -- like walking down a slope that flattens at the bottom.")
+    print("  (The 'slope' is exactly what the nudge formula measures.)\n")
+    print("  Notice the numbers are not unique: 1.18 x 1.18 and 2 x 0.69 both")
+    print("  make 1.39. Any numbers that multiply right will do.")
+
+    figure({"kind": "gd-pair", "target": round(target, 3), "step": step,
+            "names": ["摇 wag", "尾巴 tail"],
+            "frames": [[round(a, 3), round(b, 3), round(g, 3), round(e, 3)]
+                       for a, b, g, e in frames]})
+
+
+def build_step_learning(model, trained):
+    vocab, index, counts, _, _ = trained
+    table = np.log1p(counts)
+    left, strength, right = oriented_svd(table, flip_by={1: index["摇"]})
+    best = float(((table - rank_k(left, strength, right, 2)) ** 2).sum())
+    steps = ZH_DESCENT_STEPS
+    runs = {step: descend(table, step, DESCENT_ROUNDS) for step in steps}
+    good_step = steps[1]
+    good = runs[good_step]
+    small, _, big = steps
+
+    print(f"  Now the whole table at once, all {len(vocab)} words together:\n")
+    print("    1. Give every word two random numbers.")
+    print("    2. For every pair, multiply the two words' numbers and compare")
+    print("       with the squashed count in the table. Add up all the errors")
+    print("       (squared, so over and under both hurt) into one score.")
+    print("    3. Nudge every number a little to lower that score. A word is")
+    print("       nudged by its errors, each weighted by the partner's numbers --")
+    print("       the same rule as the single pair, summed over its pairs.")
+    print("    4. Repeat.\n")
+    print(f"  Total error as it learns (step size {good_step}):\n")
+    for r in [0, 5, 10, 20, 40, 80, 120]:
+        print(f"    round {r:>3}   {good[r][0]:6.1f}  {'#' * int(good[r][0] / 2)}")
+    print(f"\n  SVD's best possible answer scores {best:.1f}, so gradient descent")
+    print("  arrives at about the same place SVD computes directly. It just")
+    print("  walks there, never doing the big calculation. That is why it")
+    print("  scales: each nudge needs only a few pairs at a time.\n")
+    print("  The STEP SIZE matters:")
+    print(f"    {small}  too small: after 120 rounds the error is still {runs[small][-1][0]:.1f}")
+    print(f"    {good_step}  good: settles at {good[-1][0]:.1f}")
+    print(f"    {big}  too big: overshoots, and bounces around {runs[big][-1][0]:.1f}")
+    print("  Real training spends a great deal of effort choosing it.\n")
+    print("  This is how nearly all AI is trained, including large language")
+    print("  models: the guess comes from a huge network instead of a product")
+    print("  of two numbers, but it is the same loop -- guess, measure the")
+    print("  error, nudge, repeat.")
+
+    figure(descent_spec([tagged(w) for w in vocab], [w in ZH_PETS for w in vocab],
+                        best, runs, good_step))
 
 
 def build_step_compress(model, trained):
     vocab, index, _, _, vectors = trained
-    print("  Keeping just the top 2 patterns gives every word two numbers")
-    print(f"  instead of {len(vocab)}. The loaded Chinese model keeps {model.vector_size} numbers")
-    print(f"  per word from a vocabulary {len(model.index_to_key):,} words wide -- same")
-    print("  recipe, bigger scale.\n")
+    print("  Keeping just the top 2 layers gives every word two numbers")
+    print(f"  instead of {len(vocab)}: its score in layer 1 and its score in layer 2,")
+    print("  each multiplied by that layer's strength. (The other layers are")
+    print("  small and mostly quirks of these 16 sentences.)\n")
     for word in TOY_ROWS:
         x, y = vectors[index[word]]
         print(f"    {pad(word, 6)} {en(word):<7} [{x:+.2f}, {y:+.2f}]")
     print("\n  Two numbers per word, learned from nothing but those 16 lines.")
+    print("  Gradient descent lands on the same picture (possibly rotated or")
+    print("  flipped), so the next step holds whichever way you got here.\n")
+    print(f"  The loaded Chinese model keeps {model.vector_size} numbers per word from a")
+    print(f"  vocabulary {len(model.index_to_key):,} words wide -- same recipe, bigger scale.")
 
 
 def build_step_plot(model, trained):
@@ -249,7 +486,10 @@ def build_step_plot(model, trained):
 BUILD_STEPS = [
     ("sentences", "the 16 sentences it learns from (and cutting them)", build_step_sentences),
     ("counts", "count which words sit next to which", build_step_counts),
-    ("svd", "rank the patterns in the table", build_step_svd),
+    ("layers", "SVD: break a table into layers", build_step_layers),
+    ("strengths", "SVD: where 5.05 and 3.17 come from", build_step_strengths),
+    ("descent", "gradient descent: learn by small corrections", build_step_descent),
+    ("learning", "gradient descent on the whole table", build_step_learning),
     ("compress", "squeeze the table down", build_step_compress),
     ("plot", "did it work?", build_step_plot),
 ]
@@ -587,7 +827,10 @@ FULL_STEPS = [
     ("direction",   "direction is meaningful too: king - man + woman", tour_step_math),
     ("sentences",   "the 16 sentences we build from",               _use("vectors", build_step_sentences)),
     ("counts",      "count which words sit next to which",          _use("vectors", build_step_counts)),
-    ("svd",         "rank the patterns in the table",               _use("vectors", build_step_svd)),
+    ("layers",      "SVD: break a table into layers",               _use("vectors", build_step_layers)),
+    ("strengths",   "SVD: where 5.05 and 3.17 come from",           _use("vectors", build_step_strengths)),
+    ("descent",     "gradient descent: learn by small corrections", _use("vectors", build_step_descent)),
+    ("learning",    "gradient descent on the whole table",          _use("vectors", build_step_learning)),
     ("compress",    "squeeze the table down to 2 numbers",          _use("vectors", build_step_compress)),
     ("plot",        "did it work?",                                 _use("vectors", build_step_plot)),
     ("limits",      "one vector per word -- what gets lost",        context_body),
@@ -601,7 +844,7 @@ FULL_STEPS = [
 def build_walkthroughs():
     """The four walkthroughs, keyed by the command that starts each."""
     return {
-        "build": Walkthrough("build", BUILD_STEPS, "WHERE THE NUMBERS COME FROM",
+        "build": Walkthrough("build", BUILD_STEPS, "HOW WE TRAIN A MODEL",
                              train_toy_vectors),
         "tour": Walkthrough("tour", TOUR_STEPS, "A GUIDED WALKTHROUGH"),
         "generate": Walkthrough("generate", GENERATE_STEPS,

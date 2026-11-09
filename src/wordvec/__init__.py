@@ -460,6 +460,17 @@ def descend_pair(target, step, rounds, start=0.5):
     return frames
 
 
+def descent_spec(words, pets, best, runs, good_step):
+    """The gd-all figure: every run's frames, so the page can replay any of them."""
+    names = ("too small", "good", "too big")
+    return {"kind": "gd-all", "words": words, "pets": pets, "best": round(best, 1),
+            "runs": [{"step": step, "good": step == good_step,
+                      "label": f"{step} \u00b7 {name}",
+                      "frames": [{"loss": round(loss, 2),
+                                  "pos": np.round(pos, 3).tolist()} for loss, pos in frames]}
+                     for (step, frames), name in zip(runs.items(), names)]}
+
+
 def build_step_counts(model, trained):
     """Step 2: how the count table is made, and what it looks like."""
     vocab, index, counts, _, _ = trained
@@ -646,6 +657,7 @@ def build_step_descent(model, trained):
     print("  make 1.39. Any numbers that multiply right will do.")
 
     figure({"kind": "gd-pair", "target": round(target, 3), "step": step,
+            "names": ["wagged", "tail"],
             "frames": [[round(a, 3), round(b, 3), round(g, 3), round(e, 3)]
                        for a, b, g, e in frames]})
 
@@ -657,7 +669,8 @@ def build_step_learning(model, trained):
     left, strength, right = oriented_svd(table, flip_by={1: index["wagged"]})
     best = float(((table - rank_k(left, strength, right, 2)) ** 2).sum())
     runs = {step: descend(table, step, DESCENT_ROUNDS) for step in DESCENT_STEPS}
-    good = runs[0.08]
+    good_step = DESCENT_STEPS[1]
+    good = runs[good_step]
 
     print("  Now the whole table at once, all 19 words together:\n")
     print("    1. Give every word two random numbers.")
@@ -668,7 +681,7 @@ def build_step_learning(model, trained):
     print("       nudged by its errors, each weighted by the partner's numbers --")
     print("       the same rule as the single pair, summed over its pairs.")
     print("    4. Repeat.\n")
-    print("  Total error as it learns (step size 0.08):\n")
+    print(f"  Total error as it learns (step size {good_step}):\n")
     for r in [0, 5, 10, 20, 40, 80, 120]:
         print(f"    round {r:>3}   {good[r][0]:6.1f}  {'#' * int(good[r][0] / 2)}")
     print(f"\n  SVD's best possible answer scores {best:.1f}, so gradient descent")
@@ -676,21 +689,17 @@ def build_step_learning(model, trained):
     print("  walks there, never doing the big calculation. That is why it")
     print("  scales: each nudge needs only a few pairs at a time.\n")
     print("  The STEP SIZE matters:")
-    print(f"    0.01  too small: after 120 rounds the error is still {runs[0.01][-1][0]:.1f}")
-    print(f"    0.08  good: settles at {good[-1][0]:.1f}")
-    print(f"    0.25  too big: overshoots, and bounces around {runs[0.25][-1][0]:.1f}")
+    small, _, big = DESCENT_STEPS
+    print(f"    {small}  too small: after 120 rounds the error is still {runs[small][-1][0]:.1f}")
+    print(f"    {good_step}  good: settles at {good[-1][0]:.1f}")
+    print(f"    {big}  too big: overshoots, and bounces around {runs[big][-1][0]:.1f}")
     print("  Real training spends a great deal of effort choosing it.\n")
     print("  This is how nearly all AI is trained, including large language")
     print("  models: the guess comes from a huge network instead of a product")
     print("  of two numbers, but it is the same loop -- guess, measure the")
     print("  error, nudge, repeat.")
 
-    figure({"kind": "gd-all", "words": vocab,
-            "pets": [w in TOY_PETS for w in vocab], "best": round(best, 1),
-            "runs": [{"step": step,
-                      "frames": [{"loss": round(loss, 2),
-                                  "pos": np.round(pos, 3).tolist()} for loss, pos in frames]}
-                     for step, frames in runs.items()]})
+    figure(descent_spec(vocab, [w in TOY_PETS for w in vocab], best, runs, good_step))
 
 
 def build_step_compress(model, trained):

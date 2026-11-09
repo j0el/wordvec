@@ -52,8 +52,8 @@ class English:
 
 class Chinese:
     code = "zh"
-    title = "词向量 Word Math in Chinese"
-    prompt = "词向量>"
+    title = "How AI works - part 1 (中文)"
+    prompt = "how ai works>"
     banner = chinese.BANNER
     examples = ["king - man + woman", "beijing - china + japan",
                 "国王 - 男人 + 女人", "doctor - man + woman",

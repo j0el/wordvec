@@ -35,18 +35,27 @@ them as `figures`; `static/figures.js` draws them (SVG, no innerHTML). Terminal 
 - SVD vs GD claim used on screen: SVD is exact but slow/huge at 400,000 x 400,000; GD walks to
   nearly the same answer a few pairs at a time. GD result equals SVD's up to rotation/flip.
 
+## Chinese parity (done 2026-11-09)
+
+Chinese `build` now matches English: same 8 steps and the same figures, using the Chinese
+table (17 words, strengths 5.05 / 3.17, 53% in the top two layers, SVD best error 31.8).
+Shared helpers (`oriented_svd`, `descend`, `descend_pair`, `descent_spec`, `figure`) live in
+`wordvec/__init__.py`. Chinese gradient descent step sizes are 0.005 / 0.08 / 0.3 (the English
+table uses 0.01 / 0.08 / 0.25); 0.4 diverges on the Chinese table. Titles and banners match
+("How AI works - part 1 (中文)"). Figure labels show the word plus its English gloss.
+
+## Deployed
+
+Homelab `/opt/stacks/wordvec` runs the current code (idle-gate stops it after 30 min idle and
+wakes it on request). The login is still on: removing it is a one-line change in
+`homelab-gateway/authelia/configuration.yml` (`policy: one_factor` -> `bypass` for
+`wordvec.joelberman.net`, then restart authelia). Left for the owner to apply.
+
 ## To do next
 
-- **Chinese `build` is still the old 5-step version.** Port the new 8 steps, the worked count
-  example (use a real sentence from the Chinese corpus), and both figures; the figure plumbing
-  already works for any language (`chinese.execute` just needs to call `wordvec.figure`).
-  Chinese page title/banner not renamed yet either.
 - Check the new figures at phone width (only checked at ~1440px).
 - Possible polish: figures sit under the step text, so you scroll to reach them; the animations
   autostart only when scrolled into view.
-- Deploy to homelab when happy: rsync repo to `/opt/stacks/wordvec/`, then
-  `docker compose up -d --build` there (see earlier deployment: gateway nginx block, Authelia
-  one_factor rule, idle-gate managed, landing-page card with English / 中文 buttons).
 - The homelab-gateway repo changes (`docker-compose.yml`, `landing/`, `nginx/conf.d/gateway.conf`)
   were never committed there; Authelia config is untracked/ignored. Backups are `*.bak-wordvec-20261108`.
 - Optional: People's Daily vectors via `--vectors` (Baidu Pan download, untested).

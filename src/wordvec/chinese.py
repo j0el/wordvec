@@ -31,7 +31,7 @@ from wordvec.datafiles import CEDICT_FILE, ensure_cedict, ensure_vectors
 
 BANNER = """
 ==============================================================
-  词向量  WORD MATH IN CHINESE
+  HOW AI WORKS - PART 1  --  in Chinese  (词向量)
 ==============================================================
 
 The same word arithmetic as the English demo, but the numbers
@@ -40,18 +40,21 @@ need to read Chinese: type English and it is translated for
 you, and every answer comes back with pinyin and an English
 meaning.
 
-  full              THE WHOLE STORY in 14 steps -- tour + build
+  full              THE WHOLE STORY in 17 steps -- tour + build
                     + context + attend + generate, chained. Press
                     Enter to advance, `b` to go back.
   tour              a shorter 4-step overview (easiest idea first)
-  build             where the numbers come from: cuts 16 Chinese
-                    sentences into words (jieba), then trains vectors
-                    from scratch, one step at a time:
+  build             how we train a model: cuts 16 Chinese sentences
+                    into words (jieba), then trains vectors from
+                    scratch, one step at a time:
                       build 1  sentences    the text it learns from
                       build 2  counts       tally the neighbours
-                      build 3  svd          rank the patterns
-                      build 4  compress     squeeze to 2 numbers
-                      build 5  plot         did it work?
+                      build 3  layers       SVD: a table as layers
+                      build 4  strengths    SVD: where 5.05 comes from
+                      build 5  descent      gradient descent, one pair
+                      build 6  learning     gradient descent, all words
+                      build 7  compress     squeeze to 2 numbers
+                      build 8  plot         did it work?
   generate          same corpus, used to produce text:
                       generate 1  follows      what follows what
                       generate 2  probability  normalize
@@ -603,7 +606,7 @@ def main(argv=None) -> None:
 
     while True:
         try:
-            line = input("词向量> ")
+            line = input("how ai works> ")
         except (EOFError, KeyboardInterrupt):
             print("\nBye! 再见!")
             return
