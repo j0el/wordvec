@@ -69,7 +69,7 @@ class Chinese:
 
 
 # (button label, command). Same on both pages; the panels differ by language.
-BUTTONS = [("Full story", "full"), ("Tour", "tour"), ("Build", "build"),
+BUTTONS = [("Full story", "full"), ("Tour", "tour"), ("Build", "build"), ("Golf detour", "golf"),
            ("Generate", "generate"), ("Twins", "twins"), ("Context", "context"),
            ("Attend", "attend")]
 

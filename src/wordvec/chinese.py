@@ -44,6 +44,8 @@ meaning.
                     + context + attend + generate, chained. Press
                     Enter to advance, `b` to go back.
   tour              a shorter 4-step overview (easiest idea first)
+  golf              detour: SVD and gradient descent on golf scores
+                    (6 slides; `golf 5` is the side-by-side race)
   build             how we train a model: cuts 16 Chinese sentences
                     into words (jieba), then trains vectors from
                     scratch, one step at a time:

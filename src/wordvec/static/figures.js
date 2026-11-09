@@ -55,7 +55,7 @@ const Figures = (() => {
                     rx: 2, fill: heat(value, vmax) }, group);
       if (options.numbers) {
         const shown = Math.abs(value) < 0.005 ? "0"
-          : (Number.isInteger(value) ? String(value) : value.toFixed(1));
+          : (Number.isInteger(value) ? String(value) : value.toFixed(options.digits || 1));
         text(group, x + j * size + size / 2, y + i * size + size / 2 + 4, shown,
              "cellnum", { "text-anchor": "middle" });
       }
@@ -68,6 +68,8 @@ const Figures = (() => {
   function svdMini(spec) {
     const { box, canvas } = frame("A small table rebuilt from two layers", 720, 610);
     const size = 42;
+    const vmax = spec.vmax || 4;
+    const nm = spec.names || { column: "column", row: "row" };
     const labels = (parent, x, y, rows, cols) => {
       cols.forEach((c, j) => {
         const [first, second] = c.split(" ");
@@ -86,17 +88,17 @@ const Figures = (() => {
            vertical ? y + i * size + size / 2 + 4 : y + size / 2 + 4,
            v.toFixed(2), "cellnum", { "text-anchor": "middle" }));
 
-    text(canvas, 20, 22, "THE TABLE", "figtitle");
+    text(canvas, 20, 22, spec.title || "THE TABLE", "figtitle");
     labels(canvas, 100, 62, spec.rows, spec.cols);
-    matrix(canvas, spec.table, 100, 62, size, 4, { numbers: true });
+    matrix(canvas, spec.table, 100, 62, size, vmax, { numbers: true });
 
     const blocks = spec.layers.map((layer, k) => {
       const top = 236 + k * 188;
       const g = svg("g", {}, canvas);
-      text(g, 20, top - 22, `${k ? "+   " : ""}LAYER ${k + 1}  =  strength  ×  column  ×  row   (strength ${layer.strength.toFixed(2)})`, "figtitle");
+      text(g, 20, top - 22, `${k ? "+   " : ""}LAYER ${k + 1}  =  strength  ×  ${nm.column}  ×  ${nm.row}   (strength ${layer.strength.toFixed(2)})`, "figtitle");
       matrix(g, layer.column.map((v) => [v]), 100, top, size, 1);
       numbers(g, layer.column, 100, top, true);
-      text(g, 100 + size / 2, top + 3 * size + 16, "column", "axs", { "text-anchor": "middle" });
+      text(g, 100 + size / 2, top + 3 * size + 16, nm.column, "axs", { "text-anchor": "middle" });
       text(g, 168, top + 71, "×", "op");
       svg("circle", { cx: 232, cy: top + 63, r: 30, class: "strength" }, g);
       text(g, 232, top + 69, layer.strength.toFixed(2), "strengthnum", { "text-anchor": "middle" });
@@ -104,25 +106,27 @@ const Figures = (() => {
       text(g, 286, top + 71, "×", "op");
       matrix(g, [layer.row], 330, top + size, size, 1);
       numbers(g, layer.row, 330, top + size, false);
-      text(g, 330 + 1.5 * size, top + 3 * size + 16, "row", "axs", { "text-anchor": "middle" });
+      text(g, 330 + 1.5 * size, top + 3 * size + 16, nm.row, "axs", { "text-anchor": "middle" });
       text(g, 480, top + 71, "=", "op");
       labels(g, 590, top, spec.rows, spec.cols);
-      matrix(g, layer.matrix, 590, top, size, 4, { numbers: true });
+      matrix(g, layer.matrix, 590, top, size, vmax, { numbers: true, digits: spec.digits || 1 });
       return g;
     });
-    const summary = text(canvas, 20, 598, "Layer 1 + layer 2 = the table again, cell for cell.",
+    const summary = text(canvas, 20, 598, spec.summary || "Layer 1 + layer 2 = the table again, cell for cell.",
                          "figtitle", { style: "display:none" });
 
-    const bar = controls(box);
-    const button = html("button", { type: "button", class: "primary" }, bar, "Add layer 2");
+    const two = blocks.length > 1;
     let both = false;
+    const button = two ? html("button", { type: "button", class: "primary" }, controls(box), "Add layer 2") : null;
     const show = () => {
-      blocks[1].style.display = both ? "" : "none";
-      summary.style.display = both ? "" : "none";
+      if (two) {
+        blocks[1].style.display = both ? "" : "none";
+        summary.style.display = both ? "" : "none";
+        button.textContent = both ? "Start over" : "Add layer 2";
+      }
       canvas.setAttribute("viewBox", `0 0 720 ${both ? 610 : 420}`);
-      button.textContent = both ? "Start over" : "Add layer 2";
     };
-    button.addEventListener("click", () => { both = !both; show(); });
+    if (two) button.addEventListener("click", () => { both = !both; show(); });
     show();
     return box;
   }
@@ -333,7 +337,54 @@ const Figures = (() => {
     return box;
   }
 
-  const KINDS = { "svd-mini": svdMini, "svd-real": svdReal, "gd-pair": gdPair, "gd-all": gdAll };
+  // ---- Golf: SVD (one step) next to gradient descent (many small steps) ----
+
+  function golfRace(spec) {
+    const { box, canvas } = frame("SVD and gradient descent on the same golf table", 720, 392);
+    const size = 42, y0 = 58, xs = [80, 420];
+    const frames = spec.frames, last = frames.length - 1;
+    const labels = (x) => {
+      spec.cols.forEach((c, j) => text(canvas, x + j * size + size / 2, y0 - 6, c, "axs", { "text-anchor": "middle" }));
+      spec.rows.forEach((r, i) => text(canvas, x - 8, y0 + i * size + size / 2 + 4, r, "axs", { "text-anchor": "end" }));
+    };
+    text(canvas, 20, 22, "SVD: ONE STEP, EXACT", "figtitle");
+    text(canvas, 360, 22, "GRADIENT DESCENT: SMALL CORRECTIONS", "figtitle");
+    labels(xs[0]); labels(xs[1]);
+    matrix(canvas, spec.svd.matrix, xs[0], y0, size, 5, { numbers: true, digits: 2 });
+    text(canvas, xs[0], y0 + 3 * size + 20, `error ${spec.svd.error.toFixed(2)}`, "axis");
+    text(canvas, xs[0], y0 + 3 * size + 38, "best any one-layer answer can do", "tiny");
+    const guess = svg("g", {}, canvas);
+    const gdError = text(canvas, xs[1], y0 + 3 * size + 20, "", "axis");
+    const gdHoles = text(canvas, xs[1] - 60, y0 + 3 * size + 38, "", "tiny");
+    const gdPlayers = text(canvas, xs[1] - 60, y0 + 3 * size + 52, "", "tiny");
+
+    const cx = 80, cy = 292, cw = 600, ch = 80;
+    text(canvas, 20, cy - 8, "TOTAL ERROR, ROUND BY ROUND (log scale)", "figtitle");
+    svg("rect", { x: cx, y: cy, width: cw, height: ch, rx: 6, class: "plotbox" }, canvas);
+    const top = Math.log(frames[0].loss), bottom = Math.log(spec.svd.error) - 0.4;
+    const lx = (r) => cx + 8 + (r / last) * (cw - 16);
+    const ly = (v) => cy + 6 + (1 - (Math.log(v) - bottom) / (top - bottom)) * (ch - 12);
+    svg("line", { x1: cx + 8, x2: cx + cw - 8, y1: ly(spec.svd.error), y2: ly(spec.svd.error), class: "targetline" }, canvas);
+    text(canvas, cx + cw - 12, ly(spec.svd.error) - 6, "SVD's answer", "tiny", { "text-anchor": "end" });
+    const curve = svg("polyline", { fill: "none", class: "curve" }, canvas);
+    const now = svg("circle", { r: 4, class: "nowdot" }, canvas);
+    text(canvas, cx + cw / 2, cy + ch + 14, "rounds →", "tiny", { "text-anchor": "middle" });
+
+    player(box, last, (r, readout) => {
+      const f = frames[r];
+      guess.replaceChildren();
+      matrix(guess, f.guess, xs[1], y0, size, 5, { numbers: true, digits: 2 });
+      gdError.textContent = `error ${f.loss.toFixed(2)}`;
+      gdHoles.textContent = `hole numbers:   ${f.p.map((v) => v.toFixed(2)).join("  ")}`;
+      gdPlayers.textContent = `player numbers: ${f.q.map((v) => v.toFixed(2)).join("  ")}`;
+      curve.setAttribute("points", frames.slice(0, r + 1).map((g, k) => `${lx(k)},${ly(g.loss)}`).join(" "));
+      now.setAttribute("cx", lx(r)); now.setAttribute("cy", ly(f.loss));
+      readout.textContent = `round ${r}`;
+    }, true, 110);
+    return box;
+  }
+
+  const KINDS = { "svd-mini": svdMini, "svd-real": svdReal, "gd-pair": gdPair, "gd-all": gdAll, "golf-race": golfRace };
 
   function render(spec) {
     const draw = KINDS[spec.kind];

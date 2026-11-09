@@ -21,7 +21,7 @@ from collections import Counter, defaultdict
 import numpy as np
 
 from wordvec import (
-    DESCENT_ROUNDS, MINI_TABLE, Walkthrough, bar, descend, descend_pair,
+    DESCENT_ROUNDS, GOLF_STEPS, MINI_TABLE, Walkthrough, bar, descend, descend_pair,
     descent_spec, figure, oriented_svd, rank_k,
 )
 from wordvec.chinese import (
@@ -306,6 +306,7 @@ def build_step_layers(model, trained):
     print("  and are not this clean, and lists them strongest first. Keep")
     print("  only the strongest few and you rebuild most of the table from")
     print("  far fewer numbers. Next: do exactly this to the real table.")
+    print("\n  Want it slower, on a table of golf scores? Type `golf` (a detour).")
 
     figure({"kind": "svd-mini", "rows": rows, "cols": cols,
             "table": MINI_TABLE.tolist(),
@@ -396,6 +397,7 @@ def build_step_descent(model, trained):
     print("  (The 'slope' is exactly what the nudge formula measures.)\n")
     print("  Notice the numbers are not unique: 1.18 x 1.18 and 2 x 0.69 both")
     print("  make 1.39. Any numbers that multiply right will do.")
+    print("\n  Want gradient descent beside SVD on golf scores? Type `golf 4`.")
 
     figure({"kind": "gd-pair", "target": round(target, 3), "step": step,
             "names": ["摇 wag", "尾巴 tail"],
@@ -847,6 +849,8 @@ def build_walkthroughs():
         "build": Walkthrough("build", BUILD_STEPS, "HOW WE TRAIN A MODEL",
                              train_toy_vectors),
         "tour": Walkthrough("tour", TOUR_STEPS, "A GUIDED WALKTHROUGH"),
+        "golf": Walkthrough("golf", GOLF_STEPS,
+                            "DETOUR: SVD AND GRADIENT DESCENT ON GOLF SCORES"),
         "generate": Walkthrough("generate", GENERATE_STEPS,
                                 "GENERATING TEXT ONE WORD AT A TIME",
                                 train_toy_bigrams),

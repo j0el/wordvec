@@ -44,6 +44,8 @@ meaning the way you would add and subtract money.
                     + context + attend + generate, chained. Press
                     Enter to advance, `b` to go back.
   tour              a shorter 4-step overview (easiest idea first)
+  golf              detour: SVD and gradient descent on golf scores
+                    (6 slides; `golf 5` is the side-by-side race)
   build             how we train a model: trains vectors from
                     scratch on 16 sentences, one step at a time.
                     Enter advances, `b` goes back, or jump
@@ -564,6 +566,7 @@ def build_step_layers(model, trained):
     print("  and are not this clean, and lists them strongest first. Keep")
     print("  only the strongest few and you rebuild most of the table from")
     print("  far fewer numbers. Next: do exactly this to the real table.")
+    print("\n  Want it slower, on a table of golf scores? Type `golf` (a detour).")
 
     figure({"kind": "svd-mini", "rows": MINI_ROWS, "cols": MINI_COLS,
             "table": MINI_TABLE.tolist(),
@@ -655,6 +658,7 @@ def build_step_descent(model, trained):
     print("  (The 'slope' is exactly what the nudge formula measures.)\n")
     print("  Notice the numbers are not unique: 1.18 x 1.18 and 2 x 0.69 both")
     print("  make 1.39. Any numbers that multiply right will do.")
+    print("\n  Want gradient descent beside SVD on golf scores? Type `golf 4`.")
 
     figure({"kind": "gd-pair", "target": round(target, 3), "step": step,
             "names": ["wagged", "tail"],
@@ -845,6 +849,162 @@ GENERATE_STEPS = [
 
 # Each step is addressable by number or by name, so you can jump straight to a
 # panel when someone asks about it mid-presentation.
+# ---- Detour: the golf example (SVD and gradient descent, side by side) ------
+
+GOLF_ROWS = ["Hole 1", "Hole 2", "Hole 3"]
+GOLF_COLS = ["Phil", "Tiger", "Vijay"]
+GOLF_TABLE = np.array([[4, 4, 4], [5, 5, 5], [3, 3, 3]], dtype=float)
+GOLF_BIRDIE = GOLF_TABLE.copy()
+GOLF_BIRDIE[1, 1] = 4          # Tiger birdies hole 2: a 4 instead of a 5
+GOLF_STEP, GOLF_ROUNDS = 0.01, 40
+GOLF_NAMES = {"column": "hole profile", "row": "player profile"}
+GOLF_BACK = "  (This was a detour. Type `build 3` to go back to the word table.)"
+
+
+def golf_layers(table, count):
+    left, strength, right = oriented_svd(table)
+    layers = [{"strength": round(float(strength[k]), 2),
+               "column": (np.round(left[:, k], 2) + 0.0).tolist(),
+               "row": (np.round(right[k], 2) + 0.0).tolist(),
+               "matrix": (np.round(strength[k] * np.outer(left[:, k], right[k]), 2) + 0.0).tolist()}
+              for k in range(count)]
+    return left, strength, right, layers
+
+
+def golf_descend(table, step=GOLF_STEP, rounds=GOLF_ROUNDS, start=1.0):
+    """One hole number and one player number each; guess = hole x player."""
+    holes = np.full(table.shape[0], start)
+    players = np.full(table.shape[1], start)
+    frames = []
+    for _ in range(rounds + 1):
+        errors = np.outer(holes, players) - table
+        frames.append((float((errors ** 2).sum()), holes.copy(), players.copy()))
+        holes, players = holes - step * (errors @ players), players - step * (errors.T @ holes)
+    return frames
+
+
+def golf_step_table(model, _data):
+    print("  Three golfers play three holes. Each cell is a score:\n")
+    grid(GOLF_TABLE.astype(int), GOLF_ROWS, GOLF_COLS)
+    print("\n  Look for the pattern. Every golfer scores the same on a given hole,")
+    print("  so each column is a copy of the others. Two things explain every cell:")
+    print("    - how HARD the hole is   (hole 2 is tough, hole 3 is easy)")
+    print("    - how GOOD the player is (here they are all level)")
+    print("  The score is hard-hole-ness x good-player-ness, in effect.\n")
+    print("  That is one 'layer' in the sense of the SVD slides: one pattern for the")
+    print("  rows, one pattern for the columns, and a strength to scale them.")
+    print("  Next: let SVD find that layer for us.")
+
+
+def golf_step_svd(model, _data):
+    left, strength, right, layers = golf_layers(GOLF_TABLE, 1)
+    total = float((GOLF_TABLE ** 2).sum())
+    print("  Ask SVD to split the table into layers. It finds exactly ONE:\n")
+    print(f"    strength         {strength[0]:.2f}")
+    print(f"    hole profile     {np.round(left[:, 0], 2)}      (hole 1, 2, 3)")
+    print(f"    player profile   {np.round(right[0], 2)}      (Phil, Tiger, Vijay)\n")
+    print("  Check one cell, hole 1 / Phil:")
+    print(f"    {strength[0]:.2f} x {left[0, 0]:.2f} x {right[0, 0]:.2f} = {strength[0] * left[0, 0] * right[0, 0]:.1f}\n")
+    print("  Why 0.57 rather than 4? Each profile is scaled so its squares add to 1;")
+    print("  the strength puts the size back. Where does 12.25 come from? Square")
+    print(f"  every cell and add: 3 x (16 + 25 + 9) = {total:.0f}. The square root is {np.sqrt(total):.2f}.\n")
+    print("  The other two strengths are 0.00: the table holds only one pattern.")
+    print("  The player profile is the same for all three (0.58 each): SVD noticed")
+    print("  without being told that the golfers are equally good.")
+    figure({"kind": "svd-mini", "title": "THE SCORES", "rows": GOLF_ROWS, "cols": GOLF_COLS,
+            "table": GOLF_TABLE.tolist(), "layers": layers, "vmax": 5, "names": GOLF_NAMES,
+            "digits": 1})
+
+
+def golf_step_birdie(model, _data):
+    left, strength, right, layers = golf_layers(GOLF_BIRDIE, 2)
+    total = float((GOLF_BIRDIE ** 2).sum())
+    print("  Now Tiger birdies hole 2: his 5 becomes a 4.\n")
+    grid(GOLF_BIRDIE.astype(int), GOLF_ROWS, GOLF_COLS)
+    print("\n  The columns are no longer identical, so one layer cannot be exact.")
+    print(f"  SVD now finds TWO layers, strengths {strength[0]:.2f} and {strength[1]:.2f}:\n")
+    print("    layer 1  the course itself: hole 2 hardest, hole 3 easiest, all")
+    print("             three players about level.")
+    print("    layer 2  the Tiger effect: Tiger's column and hole 2's row, with a")
+    print("             small strength because it is one shot in nine cells.\n")
+    print("  Squared strengths add up to the table's total squares:")
+    print(f"    {strength[0]:.2f}^2 + {strength[1]:.2f}^2 = {strength[0] ** 2 + strength[1] ** 2:.1f}   (table: {total:.0f})")
+    print(f"  Layer 1 alone holds {100 * strength[0] ** 2 / total:.1f}% of it.\n")
+    print("  That is how SVD compresses: keep the strong layer, drop the weak one,")
+    print("  and every score is off by less than a shot. Press 'Add layer 2' below.")
+    figure({"kind": "svd-mini", "title": "AFTER TIGER'S BIRDIE", "rows": GOLF_ROWS,
+            "cols": GOLF_COLS, "table": GOLF_BIRDIE.tolist(), "layers": layers, "vmax": 5,
+            "names": GOLF_NAMES, "digits": 2,
+            "summary": "Layer 1 + layer 2 = the table again, cell for cell."})
+
+
+def golf_step_guess(model, _data):
+    print("  Gradient descent tries the SAME job without any SVD. Give every hole")
+    print("  one number and every player one number; guess = hole x player.")
+    print("  Start everyone at 1.0, so every guess is 1, and nudge toward the scores.\n")
+    holes = np.ones(3)
+    players = np.ones(3)
+    errors = np.outer(holes, players) - GOLF_BIRDIE
+    print("  Errors (guess - score) at the start:\n")
+    grid(errors.astype(int), GOLF_ROWS, GOLF_COLS)
+    nudge_h = GOLF_STEP * (errors @ players)
+    nudge_p = GOLF_STEP * (errors.T @ holes)
+    print(f"\n  Hole 1's number moves by -{GOLF_STEP} x (sum of its errors x the player numbers):")
+    print(f"    -{GOLF_STEP} x ({errors[0, 0]:.0f} + {errors[0, 1]:.0f} + {errors[0, 2]:.0f}) = {-nudge_h[0]:+.2f}   -> 1.00 becomes {1 - nudge_h[0]:.2f}")
+    print(f"  Phil's number the same way, down his column: {1 - nudge_p[0]:.2f}.")
+    print("  Every number is nudged at once, then the errors are recomputed, and")
+    print("  we repeat. Next: watch it run beside SVD.")
+
+
+def golf_step_race(model, _data):
+    left, strength, right, layers = golf_layers(GOLF_BIRDIE, 1)
+    best = float(strength[1] ** 2)       # what is left when only layer 1 is kept
+    frames = golf_descend(GOLF_BIRDIE)
+    settled = next(r for r, f in enumerate(frames) if f[0] < best * 1.05)
+    loss, holes, players = frames[-1]
+    print("  Same table, same one-layer answer, two ways to get it:\n")
+    print(f"    SVD               one calculation, error {best:.2f}")
+    print(f"    gradient descent  {settled} rounds of nudging, error {loss:.2f}\n")
+    print("  Both stop at the same place: no one-layer answer can beat the error")
+    print(f"  {best:.2f}, which is the layer SVD left out (strength {strength[1]:.2f}, squared).")
+    print("  Gradient descent never saw SVD; it just kept shrinking the error.\n")
+    print("  Its final numbers multiplied together give SVD's layer 1:")
+    print(f"    hole numbers   {np.round(holes, 2)}   player numbers   {np.round(players, 2)}")
+    print(f"    hole 1 / Phil: {holes[0]:.2f} x {players[0]:.2f} = {holes[0] * players[0]:.2f}"
+          f"   (SVD's layer 1: {layers[0]['matrix'][0][0]:.2f})")
+    print("  The split between hole numbers and player numbers can differ from")
+    print("  SVD's profiles (only their product matters).")
+    figure({"kind": "golf-race", "rows": GOLF_ROWS, "cols": GOLF_COLS,
+            "svd": {"matrix": layers[0]["matrix"], "error": round(best, 3)},
+            "frames": [{"loss": round(l, 4), "p": np.round(h, 3).tolist(),
+                        "q": np.round(q, 3).tolist(),
+                        "guess": np.round(np.outer(h, q), 2).tolist()} for l, h, q in frames]})
+
+
+def golf_step_which(model, _data):
+    print("  Which one to use?\n")
+    print("    SVD               exact and quick on a 3 x 3 table. On a table with")
+    print("                      400,000 x 400,000 cells it needs the whole table in")
+    print("                      memory and a huge calculation.")
+    print("    gradient descent  works a few cells at a time and can stop whenever")
+    print("                      the error is small enough; that is why large models")
+    print("                      are trained this way.\n")
+    print("  Same destination, different roads. On the word table the 'players' are")
+    print("  context words and the 'holes' are words, and the profiles become the")
+    print("  word vectors.\n")
+    print(GOLF_BACK)
+
+
+GOLF_STEPS = [
+    ("table", "three golfers, three holes", golf_step_table),
+    ("svd", "SVD finds one layer", golf_step_svd),
+    ("birdie", "Tiger birdies: a second layer", golf_step_birdie),
+    ("guess", "gradient descent: start with a guess", golf_step_guess),
+    ("race", "SVD and gradient descent, side by side", golf_step_race),
+    ("which", "which to use", golf_step_which),
+]
+
+
 BUILD_STEPS = [
     ("sentences", "the 16 sentences it learns from", build_step_sentences),
     ("counts", "count which words sit next to which", build_step_counts),
@@ -1165,11 +1325,12 @@ QUIT = object()
 
 
 def make_walkthroughs():
-    """The four walkthroughs, keyed by the command that starts each."""
+    """The walkthroughs, keyed by the command that starts each."""
     return {
         "build": Walkthrough("build", BUILD_STEPS, "HOW WE TRAIN A MODEL",
                              train_toy_vectors),
         "tour": Walkthrough("tour", TOUR_STEPS, "A GUIDED WALKTHROUGH"),
+        "golf": Walkthrough("golf", GOLF_STEPS, "DETOUR: SVD AND GRADIENT DESCENT ON GOLF SCORES"),
         "generate": Walkthrough("generate", GENERATE_STEPS,
                                 "GENERATING TEXT ONE WORD AT A TIME",
                                 train_toy_bigrams),
