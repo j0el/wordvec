@@ -1,0 +1,16 @@
+# Local run on this machine (no gateway, no external network):
+#   docker compose -f docker-compose.local.yml up --build
+# then open http://localhost:8000/
+services:
+  wordvec:
+    build: .
+    image: wordvec
+    container_name: wordvec-local
+    ports:
+      - "127.0.0.1:8000:8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/healthz', timeout=5)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s

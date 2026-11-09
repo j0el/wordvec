@@ -7,7 +7,7 @@ which word the answer lands on.
 ```
 $ uv run wordvec
 
-word math> king - man + woman
+how ai works> king - man + woman
 
   king - man + woman  =  ?
 
@@ -33,7 +33,7 @@ about 65 MB) into `~/gensim-data` and caches them there.
 | --- | --- |
 | `full` | 14-step chained walkthrough: tour → build → context → attend → generate |
 | `tour` | guided 4-step walkthrough, easiest idea first — start here if presenting |
-| `build` | where the numbers come from: trains vectors from scratch on 16 sentences |
+| `build` | how we train a model: 8 steps, from counting neighbours to SVD and gradient descent, on 16 sentences |
 | Enter / `b` | advance / go back in whichever walkthrough is active |
 | `show <word>` | prints the 50 numbers that represent `<word>` |
 | `near <word>` | the words closest in meaning to `<word>` |

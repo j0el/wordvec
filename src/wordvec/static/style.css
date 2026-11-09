@@ -189,3 +189,34 @@ button:focus-visible, input:focus-visible, .console:focus-visible {
   .console { font-size: 0.7rem; padding: 12px; height: 58vh; }
   h1 { font-size: 1.2rem; }
 }
+
+/* ---- Figures drawn by figures.js, shown under a step's text ---- */
+.console .fig { margin: 4px 0 18px; padding: 12px; border: 1px solid var(--border);
+  border-radius: 12px; background: rgba(255, 255, 255, 0.025); font-family: var(--sans); }
+.figsvg { display: block; width: 100%; height: auto; }
+.figsvg text { font-family: var(--mono); }
+.figsvg .figtitle { fill: var(--muted); font: 600 11px var(--sans); letter-spacing: 0.08em; }
+.figsvg .axis { fill: var(--text-soft); font-size: 12px; }
+.figsvg .axs { fill: var(--text-soft); font-size: 10px; }
+.figsvg .tiny { fill: var(--text-soft); font-size: 9px; }
+.figsvg .cellnum { fill: var(--text); font-size: 12px; font-weight: 600; }
+.figsvg .op { fill: var(--text); font: 600 22px var(--sans); }
+.figsvg .strength { fill: var(--accent-soft); stroke: var(--accent-border); }
+.figsvg .strengthnum { fill: var(--text); font-size: 15px; font-weight: 700; }
+.figsvg .track { fill: rgba(255, 255, 255, 0.06); }
+.figsvg .barkept { fill: var(--accent); }
+.figsvg .bardrop { fill: rgba(255, 255, 255, 0.16); }
+.figsvg .targetline { stroke: var(--prompt); stroke-width: 1.5; stroke-dasharray: 5 4; }
+.figsvg .numbox { fill: var(--accent-soft); stroke: var(--accent-border); }
+.figsvg .bignum { fill: var(--text); font-size: 20px; font-weight: 700; }
+.figsvg .plotbox { fill: rgba(255, 255, 255, 0.03); stroke: var(--border); }
+.figsvg .curve { stroke: var(--accent); stroke-width: 2; }
+.figsvg .nowdot { fill: var(--text); }
+.figcontrols { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 10px; }
+.figcontrols button { padding: 6px 12px; font-size: 0.82rem; }
+.figcontrols input[type="range"] { flex: 1; min-width: 120px; accent-color: var(--accent); }
+.figcontrols label, .figcontrols .readout { color: var(--text-soft); font-size: 0.82rem; }
+.figlegend { margin-top: 8px; color: var(--muted); font-size: 0.74rem; }
+.figlegend .dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; }
+.figlegend .pets { background: #7ee0a8; }
+.figlegend .baking { background: #ffb454; margin-left: 6px; }

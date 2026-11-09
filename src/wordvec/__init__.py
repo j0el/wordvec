@@ -32,7 +32,7 @@ COMMON_WORDS = 50_000
 
 BANNER = """
 ==============================================================
-  WORD MATH  --  doing arithmetic on the meaning of words
+  HOW AI WORKS - PART 1  --  arithmetic on the meaning of words
 ==============================================================
 
 Every word below has been turned into a list of 50 numbers,
@@ -40,19 +40,22 @@ learned by reading Wikipedia. Words used in similar ways ended
 up with similar numbers -- which lets you add and subtract
 meaning the way you would add and subtract money.
 
-  full              THE WHOLE STORY in 14 steps -- tour + build
+  full              THE WHOLE STORY in 17 steps -- tour + build
                     + context + attend + generate, chained. Press
                     Enter to advance, `b` to go back.
   tour              a shorter 4-step overview (easiest idea first)
-  build             where the numbers come from: trains vectors
-                    from scratch on 16 sentences, one step at a
-                    time. Enter advances, `b` goes back, or jump
+  build             how we train a model: trains vectors from
+                    scratch on 16 sentences, one step at a time.
+                    Enter advances, `b` goes back, or jump
                     straight to one:
                       build 1  sentences    the text it learns from
                       build 2  counts       tally the neighbours
-                      build 3  svd          rank the patterns
-                      build 4  compress     squeeze to 2 numbers
-                      build 5  plot         did it work?
+                      build 3  layers       SVD: a table as layers
+                      build 4  strengths    SVD: where 5.21 comes from
+                      build 5  descent      gradient descent, one pair
+                      build 6  learning     gradient descent, all words
+                      build 7  compress     squeeze to 2 numbers
+                      build 8  plot         did it work?
   generate          same corpus, used to produce text: counts
                     which word follows which, then samples
                     sentences one word at a time:
@@ -367,46 +370,344 @@ def build_step_sentences(model, trained):
     print("  single word means -- it only gets the raw text.")
 
 
+# ---------------------------------------------------------------------------
+# Pictures. Steps print text for the terminal; the web page can also draw. A
+# step calls figure(spec) and web.py sends the specs along with the text. In the
+# terminal nothing collects them, so they cost nothing.
+# ---------------------------------------------------------------------------
+FIGURE_SINK = None
+
+
+def figure(spec):
+    if FIGURE_SINK is not None:
+        FIGURE_SINK.append(spec)
+
+
+# Only used to colour dots in the pictures. The model never sees these labels.
+TOY_PETS = set("barked cat dog kitten puppy purred tail vet wagged".split())
+
+# A table small enough to check by hand: two obvious patterns (the pets, and
+# the cake/oven pair), so SVD finds exactly two layers.
+MINI_ROWS = ["dog", "puppy", "cake"]
+MINI_COLS = ["wagged", "tail", "oven"]
+MINI_TABLE = np.array([[2, 2, 0], [3, 3, 0], [0, 0, 4]], dtype=float)
+
+# Step sizes for the gradient descent pictures: a crawl, a good one, too much.
+DESCENT_STEPS = [0.01, 0.08, 0.25]
+DESCENT_ROUNDS = 120
+
+
+def oriented_svd(table, flip_by=None):
+    """SVD of `table` with arbitrary signs fixed so pictures are repeatable.
+
+    Each layer's column of numbers is flipped (together with its row) so its
+    biggest entry is positive; `flip_by` = {layer: row_index} overrides that
+    for layers where we want a particular word on the positive side.
+    """
+    left, strength, right = np.linalg.svd(table)
+    for layer in range(len(strength)):
+        column = left[:, layer]
+        anchor = (flip_by or {}).get(layer, int(np.argmax(np.abs(column))))
+        if column[anchor] < 0:
+            left[:, layer] = -left[:, layer]
+            right[layer] = -right[layer]
+    return left, strength, right
+
+
+def rank_k(left, strength, right, k):
+    """The table rebuilt from its k strongest layers."""
+    if k == 0:
+        return np.zeros((left.shape[0], right.shape[1]))
+    return (left[:, :k] * strength[:k]) @ right[:k]
+
+
+def grid(values, rows, cols, width=7, blank_zero=False, fmt="{:g}"):
+    """Print a small table with row and column labels."""
+    print("  " + " " * 8 + "".join(f"{c[:width - 1]:>{width}}" for c in cols))
+    for r, row in zip(rows, values):
+        cells = "".join(
+            f"{('.' if blank_zero and v == 0 else fmt.format(v)):>{width}}" for v in row)
+        print(f"  {r:>7} " + cells)
+
+
+def descend(target, step, rounds, seed=0, start_scale=0.3):
+    """Gradient descent on the whole table: start random, nudge, repeat.
+
+    Every word gets two numbers. A pair's guess is the product of its two
+    words' numbers (a dot product); the error is guess - target. Each word is
+    nudged against the sum of (error x partner's numbers) -- the slope of the
+    total squared error. Returns [(total_error, positions), ...] per round.
+    """
+    size = target.shape[0]
+    vectors = np.random.default_rng(seed).normal(0, start_scale, (size, 2))
+    frames = []
+    for _ in range(rounds + 1):
+        errors = vectors @ vectors.T - target
+        frames.append((float((errors ** 2).sum()), vectors.copy()))
+        vectors = vectors - step * (errors @ vectors)
+    return frames
+
+
+def descend_pair(target, step, rounds, start=0.5):
+    """The same idea with just two numbers: wagged and tail, one pair."""
+    first = second = start
+    frames = []
+    for _ in range(rounds + 1):
+        guess = first * second
+        error = guess - target
+        frames.append((first, second, guess, error))
+        first, second = first - step * error * second, second - step * error * first
+    return frames
+
+
 def build_step_counts(model, trained):
-    """Step 2: the co-occurrence tally, which is the actual mechanism."""
-    _, index, counts, _, _ = trained
-    print("  For every word, tally the words appearing within 2 places of it.")
-    print("  Reading across: how often each row-word sat near each column-word.\n")
-    print("        " + "".join(f"{c[:6]:>7}" for c in TOY_COLS))
-    for row_word in TOY_ROWS:
-        tally = "".join(f"{int(counts[index[row_word], index[c]]):>7}" for c in TOY_COLS)
-        print(f"  {row_word:>6}" + tally)
-    print("\n  That is the whole trick. Compare the 'dog' and 'puppy' rows --")
-    print("  nearly the same, because those two words keep the same company.")
-    print("  'cake' and 'oven' match each other, but not them.")
-    print("\n  Each row is ALREADY a list of numbers describing a word.")
+    """Step 2: how the count table is made, and what it looks like."""
+    vocab, index, counts, _, _ = trained
+    sentence = TOY_CORPUS[1]
+    kept = [w for w in re.findall(r"[a-z]+", sentence) if w in index]
+    pairs = [(kept[i], kept[j]) for i in range(len(kept))
+             for j in range(i + 1, min(len(kept), i + TOY_WINDOW + 1))]
+
+    print(f"  We want a list of numbers for each word. Start with a table whose")
+    print(f"  rows AND columns are the same {len(vocab)} words. Each cell answers:")
+    print("  how often did these two words appear within 2 places of")
+    print("  each other?\n")
+    print("  Two rules keep the table meaningful:")
+    print("    - skip filler words (the, a, and, at, its, my ...): they sit")
+    print("      next to everything and tell us nothing")
+    print("    - skip words seen only once: one sighting is not a pattern\n")
+    print(f"  ONE SENTENCE BY HAND:  \"{sentence}\"")
+    print(f"  Drop the filler and keep: {' '.join(kept)}")
+    print("  Every pair within 2 places gets +1:")
+    print("    " + "   ".join(f"{a}-{b}" for a, b in pairs))
+    print("  Do that for all 16 sentences. A corner of the finished table:\n")
+
+    corner = ["dog", "puppy", "wagged", "tail", "oven", "bread"]
+    picks = [index[w] for w in corner]
+    grid(counts[np.ix_(picks, picks)].astype(int), corner, corner, blank_zero=True)
+
+    biggest = counts.max()
+    top_pairs = sorted({tuple(sorted((vocab[i], vocab[j])))
+                        for i, j in zip(*np.where(counts == biggest))})
+    empty = int((counts == 0).sum())
+    dog_row = [vocab[j] for j in np.nonzero(counts[index["dog"]])[0]]
+    puppy_row = [vocab[j] for j in np.nonzero(counts[index["puppy"]])[0]]
+    print("\n  What to notice:")
+    print(f"    - the biggest count anywhere is {int(biggest)}: "
+          + ", ".join(f"{a}-{b}" for a, b in top_pairs))
+    print("    - it is a mirror image: if wagged sits near tail, tail sits")
+    print("      near wagged. The diagonal is empty (a word is not its own")
+    print("      neighbour)")
+    print(f"    - it is mostly empty: {empty} of {counts.size} cells are 0. A word")
+    print("      only touches the few words it actually sat beside")
+    print(f"    - 'dog' row  = {', '.join(dog_row)}")
+    print(f"      'puppy' row = {', '.join(puppy_row)}")
+    print("      different words, overlapping neighbours: similar rows")
+    print("\n  Each row is ALREADY a list of numbers for a word. But it is long")
+    print("  and mostly empty, which is what the next steps compress.")
+    print("\n  One squash first: replace each count c with log(1 + c).")
+    squash = ",  ".join(f"{c} -> {np.log1p(c):.2f}" for c in range(int(biggest) + 1))
+    print(f"    {squash}")
+    print("  The biggest pair now counts about twice a single sighting, not")
+    print("  three times, so a few common pairs cannot drown out the rest.")
 
 
-def build_step_svd(model, trained):
-    """Step 3: SVD ranks patterns across the table so we can keep only the best."""
-    _, _, _, strength, _ = trained
-    print("  Nineteen numbers per word is too many. We want two -- but WHICH")
-    print("  two? SVD answers that. It finds patterns across the whole table")
-    print("  and ranks them by how much of the table each one explains.")
-    print(f"  Here are all {len(strength)}, strongest first:\n")
+def build_step_layers(model, trained):
+    """Step 3: SVD in general, on a table small enough to check by hand."""
+    left, strength, right = oriented_svd(MINI_TABLE)
+    print("  SVD takes a table of numbers and breaks it into LAYERS. Add the")
+    print("  layers back together and you get the table again. Each layer is")
+    print("  one simple pattern, with a STRENGTH saying how big it is.\n")
+    print("  A tiny table you can check by hand (numbers made up):\n")
+    grid(MINI_TABLE.astype(int), MINI_ROWS, MINI_COLS)
+    print("\n  Two patterns are easy to see:")
+    print("    layer 1: the pets, with dog and puppy moving together (2 2 / 3 3)")
+    print("    layer 2: the lone 4 for cake and oven\n")
+    print("  Every layer is built from three ingredients:")
+    print("    - a COLUMN of numbers, one per row-word")
+    print("    - a ROW of numbers, one per column-word")
+    print("    - a STRENGTH")
+    print("  and each cell of the layer is   strength x column x row.\n")
+    layers = []
+    for k in range(2):
+        column, row = left[:, k], right[k]
+        layer = strength[k] * np.outer(column, row)
+        layers.append(layer)
+        print(f"  LAYER {k + 1}   strength {strength[k]:.2f}")
+        print(f"    column {np.round(column, 2) + 0.0}   row {np.round(row, 2) + 0.0}")
+        if k == 0:
+            print(f"    check one cell, dog/wagged:  {strength[0]:.2f} x {column[0]:.2f}"
+                  f" x {row[0]:.2f} = {layer[0, 0]:.1f}")
+        else:
+            print(f"    check one cell, cake/oven:   {strength[1]:.2f} x {column[2]:.2f}"
+                  f" x {row[2]:.2f} = {layer[2, 2]:.1f}")
+        grid(np.round(layer, 1) + 0.0, MINI_ROWS, MINI_COLS, fmt="{:.1f}")
+        print()
+    print("  Add layer 1 + layer 2 and every cell matches the original table.\n")
+    print("  Where does a strength come from? Square every cell of a layer, add")
+    print("  them up, take the square root:")
+    print(f"    layer 1:  sqrt(2^2 + 2^2 + 3^2 + 3^2) = sqrt(26) = {strength[0]:.2f}")
+    print(f"    layer 2:  sqrt(4^2) = {strength[1]:.2f}")
+    print("  A bigger strength means more of the table lives in that layer.\n")
+    print("  SVD finds the layers automatically, even when patterns overlap")
+    print("  and are not this clean, and lists them strongest first. Keep")
+    print("  only the strongest few and you rebuild most of the table from")
+    print("  far fewer numbers. Next: do exactly this to the real table.")
+
+    figure({"kind": "svd-mini", "rows": MINI_ROWS, "cols": MINI_COLS,
+            "table": MINI_TABLE.tolist(),
+            "layers": [{"strength": round(float(strength[k]), 2),
+                        "column": (np.round(left[:, k], 2) + 0.0).tolist(),
+                        "row": (np.round(right[k], 2) + 0.0).tolist(),
+                        "matrix": (np.round(layers[k], 2) + 0.0).tolist()} for k in range(2)]})
+
+
+def build_step_strengths(model, trained):
+    """Step 4: the same thing on the real table, and where 5.21 comes from."""
+    vocab, index, counts, _, _ = trained
+    table = np.log1p(counts)
+    left, strength, right = oriented_svd(table, flip_by={1: index["wagged"]})
+    energy = strength ** 2
+    total = energy.sum()
+    share = 100 * energy / total
+
+    print(f"  The real table: {len(vocab)} words x {len(vocab)} neighbours, with each")
+    print("  count squashed by log(1 + count). Same recipe as the tiny one:")
+    print(f"  SVD splits it into {len(strength)} layers. Their strengths,")
+    print("  strongest first:\n")
     for position, value in enumerate(strength, start=1):
         print(f"    [{position:>2}]  {value:5.2f}  {'#' * int(value * 4)}")
-    captured = 100 * (strength[:2] ** 2).sum() / (strength ** 2).sum()
-    print(f"\n  The top two alone capture {captured:.0f}% of the whole table,")
-    print("  and the tail trails off to nearly zero. Keep the top 2 and you")
-    print("  have the dominant patterns in two numbers. That is the compression.")
+    print(f"\n  So 5.21 is simply the strength of layer 1, 3.33 of layer 2.")
+    print("  Same meaning as before: square every cell of the layer, add up,")
+    print("  square root. Squaring the strengths gives each layer's share of")
+    print("  the table's total size:")
+    print(f"    total = {total:.1f}  (the sum of the squares of all {counts.size} cells)")
+    print(f"    layer 1:  {strength[0]:.2f}^2 = {energy[0]:.1f}   -> {share[0]:.0f}% of the table")
+    print(f"    layer 2:  {strength[1]:.2f}^2 = {energy[1]:.1f}   -> {share[1]:.0f}% of the table")
+    print(f"    together: {share[:2].sum():.0f}%.  (Half the table, not all of it --")
+    print("    two layers is a rough sketch, good enough to draw.)\n")
+
+    first = np.argsort(-np.abs(left[:, 0]))[:5]
+    pos = np.argsort(-left[:, 1])[:4]
+    neg = np.argsort(left[:, 1])[:3]
+    print("  What are the layers? Each gives every word a score:")
+    print("    layer 1 scores highest on "
+          + ", ".join(f"{vocab[i]}" for i in first) + ".")
+    print("      Not a topic: it measures how much company a word keeps.")
+    print("      Baking words appear next to more words, so they score big.")
+    print("    layer 2 is the real split:")
+    print("      one side   " + ", ".join(f"{vocab[i]} ({left[i, 1]:+.2f})" for i in pos))
+    print("      other side " + ", ".join(f"{vocab[i]} ({left[i, 1]:+.2f})" for i in neg))
+    print("      Pets on one side, baking on the other. Nobody told it.\n")
+    print("  SVD is the PRECISE method: it computes the best possible answer")
+    print("  in one go. The catch is size. This table is 19 x 19. The real")
+    print("  English model's is 400,000 x 400,000, and doing SVD on that is")
+    print("  slow and needs enormous memory. Real models use a second method")
+    print("  that is faster and almost as good: gradient descent. Next.")
+
+    order = list(np.argsort(-left[:, 1]))
+    keep = [rank_k(left, strength, right, k)[np.ix_(order, order)] for k in range(len(strength) + 1)]
+    figure({"kind": "svd-real",
+            "words": [vocab[i] for i in order],
+            "pets": [vocab[i] in TOY_PETS for i in order],
+            "strengths": np.round(strength, 2).tolist(),
+            "share": np.round(share, 1).tolist(),
+            "table": np.round(table[np.ix_(order, order)], 2).tolist(),
+            "recon": [np.round(m, 2).tolist() for m in keep]})
+
+
+def build_step_descent(model, trained):
+    """Step 5: gradient descent on a single pair of numbers."""
+    vocab, index, counts, _, _ = trained
+    target = float(np.log1p(counts[index["wagged"], index["tail"]]))
+    step = 0.2
+    frames = descend_pair(target, step, 60)
+    print("  Gradient descent finds good numbers by trial and correction:")
+    print("  guess, measure how wrong, nudge to be a little less wrong, repeat.\n")
+    print("  ONE PAIR, BY HAND. 'wagged' and 'tail' sat together")
+    print(f"  {int(counts[index['wagged'], index['tail']])} times, which the squash turns into a")
+    print(f"  TARGET of log(1 + 3) = {target:.2f}.\n")
+    print("  Each word gets one number to start with; say 0.5 each. The model's")
+    print("  GUESS for the pair is the two numbers multiplied:")
+    print(f"    0.5 x 0.5 = {frames[0][2]:.2f}.  Far below {target:.2f}, so the ERROR is "
+          f"{frames[0][3]:+.2f}.\n")
+    print("  The nudge: if the guess is too low, both numbers should go up.")
+    print(f"      new number = old number - {step} x error x the OTHER number")
+    print("  A big error gives a big nudge; a small error, a small one.\n")
+    print("    round   wagged    tail    guess    error")
+    for r in [0, 1, 2, 3, 4, 5, 6, 8, 10, 15, 20, 40, 60]:
+        a, b, guess, error = frames[r]
+        error = error if abs(error) >= 0.0005 else 0.0
+        print(f"    {r:>5}   {a:6.3f}  {b:6.3f}   {guess:6.3f}  {error:+7.3f}")
+    print("\n  The nudges shrink as the error shrinks: quick at first, then")
+    print("  easing in -- like walking down a slope that flattens at the bottom.")
+    print("  (The 'slope' is exactly what the nudge formula measures.)\n")
+    print("  Notice the numbers are not unique: 1.18 x 1.18 and 2 x 0.69 both")
+    print("  make 1.39. Any numbers that multiply right will do.")
+
+    figure({"kind": "gd-pair", "target": round(target, 3), "step": step,
+            "frames": [[round(a, 3), round(b, 3), round(g, 3), round(e, 3)]
+                       for a, b, g, e in frames]})
+
+
+def build_step_learning(model, trained):
+    """Step 6: gradient descent on the whole table, with the step size on show."""
+    vocab, index, counts, _, _ = trained
+    table = np.log1p(counts)
+    left, strength, right = oriented_svd(table, flip_by={1: index["wagged"]})
+    best = float(((table - rank_k(left, strength, right, 2)) ** 2).sum())
+    runs = {step: descend(table, step, DESCENT_ROUNDS) for step in DESCENT_STEPS}
+    good = runs[0.08]
+
+    print("  Now the whole table at once, all 19 words together:\n")
+    print("    1. Give every word two random numbers.")
+    print("    2. For every pair, multiply the two words' numbers and compare")
+    print("       with the squashed count in the table. Add up all the errors")
+    print("       (squared, so over and under both hurt) into one score.")
+    print("    3. Nudge every number a little to lower that score. A word is")
+    print("       nudged by its errors, each weighted by the partner's numbers --")
+    print("       the same rule as the single pair, summed over its pairs.")
+    print("    4. Repeat.\n")
+    print("  Total error as it learns (step size 0.08):\n")
+    for r in [0, 5, 10, 20, 40, 80, 120]:
+        print(f"    round {r:>3}   {good[r][0]:6.1f}  {'#' * int(good[r][0] / 2)}")
+    print(f"\n  SVD's best possible answer scores {best:.1f}, so gradient descent")
+    print("  arrives at about the same place SVD computes directly. It just")
+    print("  walks there, never doing the big calculation. That is why it")
+    print("  scales: each nudge needs only a few pairs at a time.\n")
+    print("  The STEP SIZE matters:")
+    print(f"    0.01  too small: after 120 rounds the error is still {runs[0.01][-1][0]:.1f}")
+    print(f"    0.08  good: settles at {good[-1][0]:.1f}")
+    print(f"    0.25  too big: overshoots, and bounces around {runs[0.25][-1][0]:.1f}")
+    print("  Real training spends a great deal of effort choosing it.\n")
+    print("  This is how nearly all AI is trained, including large language")
+    print("  models: the guess comes from a huge network instead of a product")
+    print("  of two numbers, but it is the same loop -- guess, measure the")
+    print("  error, nudge, repeat.")
+
+    figure({"kind": "gd-all", "words": vocab,
+            "pets": [w in TOY_PETS for w in vocab], "best": round(best, 1),
+            "runs": [{"step": step,
+                      "frames": [{"loss": round(loss, 2),
+                                  "pos": np.round(pos, 3).tolist()} for loss, pos in frames]}
+                     for step, frames in runs.items()]})
 
 
 def build_step_compress(model, trained):
-    """Step 4: show the final 2 numbers per word, after keeping the top 2 patterns."""
+    """Step 7: show the final 2 numbers per word, after keeping the top 2 layers."""
     vocab, index, _, _, vectors = trained
-    print(f"  Keeping just the top 2 patterns gives every word two numbers")
-    print(f"  instead of {len(vocab)}. The loaded model keeps 50 patterns from")
-    print("  a vocabulary 400,000 words wide -- same recipe, bigger scale.\n")
+    print(f"  Keeping just the top 2 layers gives every word two numbers")
+    print(f"  instead of {len(vocab)}: its score in layer 1 and its score in layer 2,")
+    print("  each multiplied by that layer's strength. (The other 17 layers")
+    print("  are small and mostly quirks of these 16 sentences.)\n")
     for word in TOY_ROWS:
         x, y = vectors[index[word]]
         print(f"    {word:>6}  [{x:+.2f}, {y:+.2f}]")
     print("\n  Two numbers per word, learned from nothing but those 16 lines.")
+    print("  Gradient descent lands on the same picture (possibly rotated or")
+    print("  flipped), so the next step holds whichever way you got here.\n")
+    print(f"  The loaded model keeps 50 numbers per word from a vocabulary")
+    print("  400,000 words wide -- same recipe, bigger scale.")
 
 
 def build_step_plot(model, trained):
@@ -538,7 +839,10 @@ GENERATE_STEPS = [
 BUILD_STEPS = [
     ("sentences", "the 16 sentences it learns from", build_step_sentences),
     ("counts", "count which words sit next to which", build_step_counts),
-    ("svd", "rank the patterns in the table", build_step_svd),
+    ("layers", "SVD: break a table into layers", build_step_layers),
+    ("strengths", "SVD: where 5.21 and 3.33 come from", build_step_strengths),
+    ("descent", "gradient descent: learn by small corrections", build_step_descent),
+    ("learning", "gradient descent on the whole table", build_step_learning),
     ("compress", "squeeze the table down", build_step_compress),
     ("plot", "did it work?", build_step_plot),
 ]
@@ -625,7 +929,7 @@ def describe_build_steps():
 def context_body(model, _data=None):
     """The content of the `context` panel (minus the standalone banner).
 
-    Shared by the standalone `context` command and by `full` step 10.
+    Shared by the standalone `context` command and by `full` step 13.
     """
     print("  Every word is ONE list of 50 numbers. But 'bank' means two")
     print("  things, 'apple' means two, 'bat' means two. A single vector")
@@ -700,7 +1004,7 @@ def show_attend_example(model, first, second, sense):
 def attend_body(model, _data=None):
     """The content of the `attend` panel (minus the standalone banner).
 
-    Shared by the standalone `attend` command and by `full` step 11.
+    Shared by the standalone `attend` command and by `full` step 14.
     """
     print("  `context` showed what a single vector can't do: 'apple' is")
     print("  stuck meaning the company, 'crane' is stuck meaning the")
@@ -823,7 +1127,7 @@ def _use(key, step_fn):
     return wrapped
 
 
-# The full walkthrough chains the four teaching sections into one 14-step tour:
+# The full walkthrough chains the four teaching sections into one 17-step tour:
 # intuition (tour) -> mechanics (build) -> limitation (context + attend) ->
 # generation (generate). Each step reuses the function from its home module.
 FULL_STEPS = [
@@ -833,7 +1137,10 @@ FULL_STEPS = [
     ("direction",   "direction is meaningful too: king - man + woman", tour_step_math),
     ("sentences",   "the 16 sentences we build from",               _use("vectors", build_step_sentences)),
     ("counts",      "count which words sit next to which",          _use("vectors", build_step_counts)),
-    ("svd",         "rank the patterns in the table",               _use("vectors", build_step_svd)),
+    ("layers",      "SVD: break a table into layers",               _use("vectors", build_step_layers)),
+    ("strengths",   "SVD: where 5.21 and 3.33 come from",           _use("vectors", build_step_strengths)),
+    ("descent",     "gradient descent: learn by small corrections", _use("vectors", build_step_descent)),
+    ("learning",    "gradient descent on the whole table",          _use("vectors", build_step_learning)),
     ("compress",    "squeeze the table down to 2 numbers",          _use("vectors", build_step_compress)),
     ("plot",        "did it work?",                                 _use("vectors", build_step_plot)),
     ("limits",      "one vector per word -- what gets lost",        context_body),
@@ -851,7 +1158,7 @@ QUIT = object()
 def make_walkthroughs():
     """The four walkthroughs, keyed by the command that starts each."""
     return {
-        "build": Walkthrough("build", BUILD_STEPS, "WHERE THE NUMBERS COME FROM",
+        "build": Walkthrough("build", BUILD_STEPS, "HOW WE TRAIN A MODEL",
                              train_toy_vectors),
         "tour": Walkthrough("tour", TOUR_STEPS, "A GUIDED WALKTHROUGH"),
         "generate": Walkthrough("generate", GENERATE_STEPS,
@@ -945,7 +1252,7 @@ def main() -> None:
 
     while True:
         try:
-            line = input("word math> ")
+            line = input("how ai works> ")
         except (EOFError, KeyboardInterrupt):
             print("\nBye!")
             return

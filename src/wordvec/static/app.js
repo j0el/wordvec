@@ -83,6 +83,8 @@ async function run(line, { show = true } = {}) {
       // Show the top of new output, not the bottom: panels are longer than the window.
       consoleEl.scrollTop = data.clear ? 0 : Math.max(0, pre.offsetTop - consoleEl.offsetTop - 40);
     }
+    // Pictures the step asked for (animations, diagrams) go under its text.
+    for (const spec of data.figures || []) consoleEl.appendChild(Figures.render(spec));
     state = data.state;
     updateStepper();
   } catch (error) {

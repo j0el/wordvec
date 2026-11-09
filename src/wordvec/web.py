@@ -33,8 +33,8 @@ _run_lock = threading.Lock()
 
 class English:
     code = "en"
-    title = "Word Math"
-    prompt = "word math>"
+    title = "How AI works - part 1"
+    prompt = "how ai works>"
     banner = wordvec.BANNER
     examples = ["king - man + woman", "paris - france + italy",
                 "walking - walk + swim", "doctor - man + woman",
@@ -132,12 +132,17 @@ def create_app(languages=None):
                 except (TypeError, ValueError):
                     active.step = 0
             buffer = io.StringIO()
-            with contextlib.redirect_stdout(buffer):
-                try:
-                    active = language.execute(active, line)
-                except Exception as error:  # a demo shouldn't show a stack trace
-                    print(f"  Something went wrong: {error}\n")
-                    app.logger.exception("command failed: %r", line)
+            # Steps may ask for pictures (wordvec.figure); collect them here.
+            wordvec.FIGURE_SINK = figures = []
+            try:
+                with contextlib.redirect_stdout(buffer):
+                    try:
+                        active = language.execute(active, line)
+                    except Exception as error:  # a demo shouldn't show a stack trace
+                        print(f"  Something went wrong: {error}\n")
+                        app.logger.exception("command failed: %r", line)
+            finally:
+                wordvec.FIGURE_SINK = None
             if active is wordvec.QUIT:
                 active = None
 
@@ -147,7 +152,8 @@ def create_app(languages=None):
         # the same when the step changed.
         clear = after is not None and (
             after["walk"] != before.get("walk") or after["step"] != before.get("step"))
-        return jsonify(output=buffer.getvalue(), state=after, clear=clear)
+        return jsonify(output=buffer.getvalue(), state=after, clear=clear,
+                       figures=figures)
 
     return app
 
